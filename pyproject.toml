@@ -1,0 +1,35 @@
+[project]
+name = "btc-neural"
+version = "0.1.0"
+description = "Bitcoin cycle buy/sell signal model with walk-forward backtesting"
+readme = "README.md"
+authors = [
+    { name = "z2i", email = "dylan.farre@icloud.com" }
+]
+requires-python = ">=3.12"
+dependencies = [
+    "lightgbm>=4.7.0",
+    "matplotlib>=3.11.2",
+    "numpy>=2.5.3",
+    "pandas>=3.0.6",
+    "plotly>=7.1.0",
+    "python-dotenv>=1.2.3",
+    "pyyaml>=6.0.3",
+    "requests>=2.34.2",
+    "scikit-learn>=1.9.1",
+    "shap>=0.52.0",
+    "streamlit>=1.64.0",
+    "torch>=2.14.0",
+]
+
+[build-system]
+requires = ["uv_build>=0.9.30,<0.10.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+]
+
+[project.scripts]
+btcn = "btc_neural.cli:main"

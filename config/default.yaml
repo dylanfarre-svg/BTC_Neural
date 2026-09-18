@@ -1,0 +1,122 @@
+# BTC_Neural default configuration.
+# Override locally by creating config/local.yaml with the keys you want to change.
+
+db_path: data/btc_neural.db
+runs_dir: runs
+
+# --- Cycle reference data -------------------------------------------------
+# Halvings are known in advance, so the model may use them as causal inputs.
+halvings: ["2012-11-28", "2016-07-09", "2020-05-11", "2024-04-20"]
+next_halving_estimate: "2028-04-15"
+
+# Cycle extremes are HINDSIGHT information. They are used ONLY for labels and
+# evaluation, never as model inputs. Each date is approximate; the code snaps it to the
+# actual highest/lowest daily close within +/- extreme_search_days.
+extremes:
+  - {kind: top, date: "2011-06-08"}
+  - {kind: low, date: "2011-11-18"}
+  - {kind: top, date: "2013-12-04"}
+  - {kind: low, date: "2015-01-14"}
+  - {kind: top, date: "2017-12-17"}
+  - {kind: low, date: "2018-12-15"}
+  - {kind: top, date: "2021-11-10"}
+  - {kind: low, date: "2022-11-21"}
+  - {kind: top, date: "2025-10-06"}
+extreme_search_days: 45
+# An extreme may label training rows only once the training cutoff is at least this
+# many days past it (it would have been "obvious" by then).
+extreme_confirm_days: 180
+
+# --- Labels ----------------------------------------------------------------
+label:
+  kind: cycle          # cycle | window
+  window_half_days: 365  # used by kind=window
+
+# --- Walk-forward folds (halving epochs) ------------------------------------
+# Each halving epoch contains exactly one cycle top and one cycle low, so every test
+# fold holds one complete top and bottom (the current epoch's low is still pending).
+folds:
+  min_train_days: 450
+  selection_folds: ["E2", "E3", "E4"]   # E1 is reported but its training set is tiny
+
+# --- Signal calibration ------------------------------------------------------
+# Cumulative days per 4-year cycle (1460 days) at >= each strength level, per side.
+# Strength 10 = 10 days per cycle, as requested.
+signal_budget:
+  10: 10
+  9: 22
+  8: 38
+  7: 60
+  6: 90
+  5: 130
+  4: 180
+  3: 240
+  2: 310
+  1: 400
+calibration: oof       # how frozen thresholds are fitted: oof (inner leave-one-epoch-out) | insample
+# How scores become strengths:
+#   frozen   - thresholds fitted on the training period, applied unchanged
+#   trailing - causal rank of today's score within the model's own last `trailing_window` days
+#   hybrid   - the stronger of the two when they agree in sign
+#   both     - the weaker of the two (must be extreme in absolute AND relative terms)
+strength_mode: trailing
+trailing_window: 1095
+
+# --- Evaluation ------------------------------------------------------------
+evaluation:
+  hit_log_distance: 0.29   # |ln(P/P_extreme)| <= 0.29  (~25% below a top / ~33% above a low)
+  strong_level: 8
+
+# --- Trading simulation (secondary; South African tax) -----------------------
+simulation:
+  monthly_contribution_usd: 1000
+  base_dca_fraction: 0.5        # share of each contribution bought immediately; rest goes to reserve
+  fee_rate: 0.005
+  core_floor_fraction: 0.25     # never sell below 25% of peak BTC held
+  # Fraction of reserve cash deployed per day at each buy strength
+  buy_fraction: {5: 0.02, 6: 0.04, 7: 0.07, 8: 0.10, 9: 0.15, 10: 0.25}
+  # Fraction of sellable BTC (above the core floor) sold per day at each sell strength
+  sell_fraction: {6: 0.01, 7: 0.02, 8: 0.03, 9: 0.05, 10: 0.08}
+  tax:
+    regime: za_cgt              # South African capital gains tax (individual, investor)
+    lot_method: fifo            # fifo | hifo | average
+    inclusion_rate: 0.40        # 40% of net gain included in taxable income
+    marginal_rate: 0.45         # your marginal income-tax rate
+    annual_exclusion_zar: 40000
+    tax_year_start_month: 3     # SA tax year: 1 March - end February
+    usd_zar_series: DEXSFUS     # FRED USD/ZAR, used to compute gains in rand
+
+# --- Models ----------------------------------------------------------------
+models:
+  nn:
+    seeds: 8
+    epochs: 120
+    seq_weeks: 52
+    lr: 0.001
+    weight_decay: 0.001
+    dropout: 0.3
+    input_noise: 0.10
+    batch_size: 512
+    epoch_fraction: 0.35   # share of (highly autocorrelated) daily rows sampled per epoch
+    device: auto           # auto (Apple MPS if available) | cpu
+  lgbm:
+    n_estimators: 400
+    learning_rate: 0.03
+    num_leaves: 7
+    min_child_samples: 80
+    subsample: 0.7
+    colsample_bytree: 0.7
+    reg_lambda: 5.0
+
+# --- Live / notifications ----------------------------------------------------
+live:
+  retrain_after_days: 30
+  stale_after_days: 3
+notify:
+  ntfy_server: https://ntfy.sh
+  macos: true
+  strong_level: 7
+  regime_change_levels: 3
+  nn_disagreement_levels: 5
+  weekly_digest_weekday: 6    # Sunday (Mon=0)
+  dashboard_url: http://localhost:8501
