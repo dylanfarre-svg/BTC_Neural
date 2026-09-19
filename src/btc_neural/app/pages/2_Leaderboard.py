@@ -28,7 +28,24 @@ for r in prod.drop_duplicates("role").itertuples():
     tags[r.src] = r.role
 v = v.assign(role=v.run_id.map(tags).fillna(""))
 cols = ["role", "model_type", "feature_set", "mode", "selection_score"] + [c for c in ["E1", "E2", "E3", "E4"] if c in v]
-cfg = {c: st.column_config.NumberColumn(c, format="%.3f") for c in cols[5:]}
-cfg["selection_score"] = st.column_config.ProgressColumn(
-    "selection score ↓", format="%.3f", min_value=0.0, max_value=float(max(2.5, v.selection_score.max())))
-st.dataframe(v[cols + ["run_id"]], column_config=cfg, use_container_width=True, hide_index=True, height=620)
+score_cols = cols[4:]
+# Heatmap on one shared scale across all score cells: darker blue = better (lower score).
+RAMP = ["#104281", "#184f95", "#1c5cab", "#256abf", "#2a78d6", "#3987e5", "#5598e7", "#6da7ec", "#86b6ef", "#9ec5f4", "#b7d3f6", "#cde2fb"]
+LO, HI = 0.0, 2.5
+
+
+def heat(val):
+    if val is None or val != val:
+        return ""
+    i = int(round((min(max(val, LO), HI) - LO) / (HI - LO) * (len(RAMP) - 1)))
+    text = "#ffffff" if i <= 5 else "#0b0b0b"
+    return f"background-color: {RAMP[i]}; color: {text}"
+
+
+styled = (v[cols + ["run_id"]].style
+          .map(heat, subset=score_cols)
+          .format({c: "{:.3f}" for c in score_cols}, na_rep="–"))
+st.dataframe(styled, use_container_width=True, hide_index=True, height=620,
+             column_config={"selection_score": st.column_config.Column("selection score ↓")})
+st.caption(f"Shading: one scale for all score columns, {LO:.1f} (dark, best) to ≥{HI:.1f} (light, worst). "
+           "E4 scores only the sell side (the current cycle's low is not confirmed).")

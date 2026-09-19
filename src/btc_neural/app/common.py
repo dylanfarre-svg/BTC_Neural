@@ -43,14 +43,40 @@ def extremes_df() -> pd.DataFrame:
     return pd.DataFrame([{"kind": e.kind, "date": e.date, "price": e.price} for e in ex])
 
 
+# One-hue ramps per side of the diverging buy/sell scale (level 1 -> 10).
+BUY_RAMP = ["#cde2fb", "#b7d3f6", "#9ec5f4", "#86b6ef", "#6da7ec", "#5598e7", "#3987e5", "#2a78d6", "#1c5cab", "#104281"]
+SELL_RAMP = ["#fbd5d4", "#f8c2c1", "#f5aeac", "#f19a98", "#ec8583", "#e76f6d", "#e34948", "#c93b3a", "#a82f2e", "#862423"]
+GRID = "rgba(128,128,128,0.15)"
+
+
+def strength_colors(s: pd.Series) -> list[str]:
+    return [BUY_RAMP[v - 1] if v > 0 else SELL_RAMP[-v - 1] if v < 0 else "rgba(128,128,128,0.3)" for v in s.astype(int)]
+
+
+def stacked_layout(fig: go.Figure, top_title: str, bottom_title: str, height: int, title: str = "",
+                   top_log: bool = True, split: float = 0.32) -> go.Figure:
+    """Two panels on ONE shared x axis, so a single hover line/tooltip spans both panels."""
+    fig.update_layout(
+        title=dict(text=title, y=0.98, yanchor="top"), height=height,
+        margin=dict(l=10, r=10, t=80 if title else 40, b=10),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, x=0),
+        hovermode="x unified", hoversubplots="axis",
+        xaxis=dict(anchor="y2", gridcolor=GRID, hoverformat="%Y-%m-%d", showspikes=True, spikemode="across", spikesnap="cursor",
+                   spikethickness=1, spikedash="solid", spikecolor="rgba(128,128,128,0.7)"),
+        yaxis=dict(domain=[split + 0.06, 1.0], type="log" if top_log else "linear", title=top_title, gridcolor=GRID),
+        yaxis2=dict(domain=[0.0, split], title=bottom_title, gridcolor=GRID, zerolinecolor="rgba(128,128,128,0.5)"),
+    )
+    return fig
+
+
 def signal_figure(close: pd.Series, strength: pd.Series, title: str = "", show_extremes: bool = True,
                   min_level: int = 7, shade: list[tuple[str, pd.Timestamp, pd.Timestamp]] | None = None,
-                  height: int = 520) -> go.Figure:
+                  height: int = 680) -> go.Figure:
+    """Log price with strong-signal markers, plus a panel with the full daily strength (-10..+10)."""
     s = strength.reindex(close.index).fillna(0).astype(int)
     fig = go.Figure()
     fig.add_trace(go.Scatter(x=close.index, y=close.values, name="BTC/USD", mode="lines",
-                             line=dict(color=PRICE, width=1.6),
-                             hovertemplate="%{x|%Y-%m-%d}<br>$%{y:,.0f}<extra></extra>"))
+                             line=dict(color=PRICE, width=1.6), hovertemplate="$%{y:,.0f}"))
     groups = [
         ("Buy 10", s >= 10, BUY_10, 10, "triangle-up"),
         (f"Buy {min_level}-9", (s >= min_level) & (s < 10), BUY_STRONG, 7, "triangle-up"),
@@ -60,25 +86,24 @@ def signal_figure(close: pd.Series, strength: pd.Series, title: str = "", show_e
     for name, m, color, size, sym in groups:
         if m.any():
             fig.add_trace(go.Scatter(
-                x=close.index[m], y=close[m], mode="markers", name=name,
-                marker=dict(color=color, size=size, symbol=sym, line=dict(width=1, color="rgba(255,255,255,0.8)")),
-                customdata=s[m].values,
-                hovertemplate="%{x|%Y-%m-%d}<br>$%{y:,.0f}<br>strength %{customdata}<extra>" + name + "</extra>"))
+                x=close.index[m], y=close[m], mode="markers", name=name, hoverinfo="skip",
+                marker=dict(color=color, size=size, symbol=sym, line=dict(width=1, color="rgba(255,255,255,0.8)"))))
+    fig.add_trace(go.Bar(x=s.index, y=s.values, yaxis="y2", name="Strength", showlegend=False,
+                         marker=dict(color=strength_colors(s), line_width=0),
+                         customdata=[fmt_strength(v) for v in s.values], hovertemplate="%{customdata}"))
     if show_extremes:
         ex = extremes_df()
         ex = ex[(ex.date >= close.index[0]) & (ex.date <= close.index[-1])]
         for _, e in ex.iterrows():
-            fig.add_annotation(x=e.date, y=np.log10(e.price), text=("cycle top" if e.kind == "top" else "cycle low"),
+            fig.add_annotation(x=e.date, y=np.log10(e.price), yref="y", text=("cycle top" if e.kind == "top" else "cycle low"),
                                showarrow=True, arrowhead=0, ay=(-28 if e.kind == "top" else 28), font=dict(size=10),
                                arrowcolor=TOP_MARK if e.kind == "top" else LOW_MARK)
     for name, a, b in shade or []:
         fig.add_vrect(x0=a, x1=b, fillcolor="rgba(128,128,128,0.07)", line_width=0,
                       annotation_text=name, annotation_position="top left", annotation_font_size=10)
-    fig.update_yaxes(type="log", title="USD (log)", gridcolor="rgba(128,128,128,0.15)")
-    fig.update_xaxes(gridcolor="rgba(128,128,128,0.10)")
-    fig.update_layout(title=dict(text=title, y=0.98, yanchor="top"), height=height,
-                      margin=dict(l=10, r=10, t=80 if title else 40, b=10),
-                      legend=dict(orientation="h", yanchor="bottom", y=1.02, x=0), hovermode="closest")
+    stacked_layout(fig, "USD (log)", "strength", height, title)
+    fig.update_layout(bargap=0, yaxis2=dict(range=[-10.5, 10.5], tickvals=[-10, -5, 0, 5, 10],
+                                            ticktext=["Sell 10", "Sell 5", "0", "Buy 5", "Buy 10"]))
     return fig
 
 
