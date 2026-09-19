@@ -83,3 +83,20 @@ def test_simulator_dca_and_tax():
     assert strat.summary["tax_paid_usd"] + strat.summary["tax_accrued_usd"] > 0
     peak = strat.equity["btc"].max()
     assert strat.equity["btc"].iloc[1000] >= 0.25 * peak - 1e-9
+
+
+def test_forecast_uses_only_earlier_cycles():
+    """A hindcast must not change when later extremes are added to the list."""
+    from btc_neural.backtest.walkforward import dataset
+    from btc_neural.data import cycle_extremes
+    from btc_neural.forecast import forecast_next
+    import pytest
+    daily, feats = dataset()
+    if len(daily) < 3000:
+        pytest.skip("database not populated")
+    ex = cycle_extremes(daily["close"])
+    asof = ex[6].date + pd.Timedelta(days=180)   # after the 2021 top, before the 2022 low
+    a = forecast_next(daily, feats, ex[:7], asof=asof)
+    b = forecast_next(daily, feats, ex, asof=asof)
+    assert a.kind == "low" and a.date_mu == b.date_mu and a.logp_mu == b.logp_mu
+    assert a.date_sd >= 30 and a.logp_sd >= 0.15

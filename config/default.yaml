@@ -120,3 +120,10 @@ notify:
   nn_disagreement_levels: 5
   weekly_digest_weekday: 6    # Sunday (Mon=0)
   dashboard_url: http://localhost:8501
+
+# --- Next-extreme forecast (statistical cycle-analog model, shown on the Home chart) ---
+forecast:
+  analog_cycles: 3        # most recent past cycles used as analogs (the 2011 cycle is excluded as immature)
+  min_date_sd_days: 30    # floor on the date uncertainty (1 sigma)
+  min_logp_sd: 0.15       # floor on the log-price uncertainty (1 sigma, ~16%)
+  halving_sd_days: 20     # uncertainty in the estimated date of the next halving

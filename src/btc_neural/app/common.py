@@ -132,3 +132,50 @@ def gauge_html(strength: int, label: str) -> str:
   </div>
   <div style="display:flex;justify-content:space-between;font-size:0.75rem;opacity:0.6"><span>Sell 10</span><span>0</span><span>Buy 10</span></div>
 </div>"""
+
+
+def add_forecast_overlay(fig: go.Figure, fc, today: pd.Timestamp, x_start: pd.Timestamp | None = None,
+                         bands: int = 41, max_alpha: float = 0.30) -> pd.Timestamp:
+    """Gaussian-shaded bands for the forecast date (vertical) and price (horizontal).
+
+    Each band's opacity follows the normal density, so the shading fades out at ±3σ.
+    Returns the right edge of the forecast horizon (for the x-axis range).
+    """
+    rgb = "42,120,214" if fc.kind == "low" else "227,73,72"
+    color = BUY_10 if fc.kind == "low" else SELL_10
+    x_end = max(fc.date_mu + pd.Timedelta(days=3.2 * fc.date_sd), today + pd.Timedelta(days=30))
+    hx0 = x_start if x_start is not None else today   # horizontal (price) band spans the whole chart
+    zs = np.linspace(-3, 3, bands)
+    dz = zs[1] - zs[0]
+    for z in zs:
+        a = max_alpha * float(np.exp(-z * z / 2))
+        fill = f"rgba({rgb},{a:.3f})"
+        fig.add_shape(type="rect", xref="x", yref="y domain", layer="below", line_width=0, fillcolor=fill,
+                      x0=fc.date_mu + pd.Timedelta(days=(z - dz / 2) * fc.date_sd),
+                      x1=fc.date_mu + pd.Timedelta(days=(z + dz / 2) * fc.date_sd), y0=0, y1=1)
+        fig.add_shape(type="rect", xref="x", yref="y", layer="below", line_width=0,
+                      fillcolor=f"rgba({rgb},{0.75 * a:.3f})", x0=hx0, x1=x_end,
+                      y0=float(np.exp(fc.logp_mu + (z - dz / 2) * fc.logp_sd)),
+                      y1=float(np.exp(fc.logp_mu + (z + dz / 2) * fc.logp_sd)))
+    fig.add_shape(type="line", xref="x", yref="y domain", x0=fc.date_mu, x1=fc.date_mu, y0=0, y1=1,
+                  line=dict(color=color, width=1.5, dash="dash"))
+    # shapes on a log axis take data values (unlike annotations, which take log10)
+    fig.add_shape(type="line", xref="x", yref="y", x0=hx0, x1=x_end, y0=fc.price_mu, y1=fc.price_mu,
+                  line=dict(color=color, width=1.5, dash="dash"))
+    fig.add_shape(type="line", xref="x", yref="paper", x0=today, x1=today, y0=0, y1=1,
+                  line=dict(color="rgba(128,128,128,0.6)", width=1, dash="dot"))
+    fig.add_annotation(x=today, y=0, yref="y domain", text="today", showarrow=False, xanchor="right",
+                       yanchor="bottom", font=dict(size=10), xshift=-3)
+    d1, d2 = fc.date_interval(1)
+    p1, p2 = fc.price_interval(1)
+    p95a, p95b = fc.price_interval(1.96)
+    label = f"next cycle {fc.kind}"
+    fig.add_trace(go.Scatter(
+        x=[fc.date_mu], y=[fc.price_mu], mode="markers+text", name=f"Forecast: {label}",
+        marker=dict(symbol="diamond", size=12, color=color, line=dict(width=1.5, color="rgba(255,255,255,0.9)")),
+        text=[f"{label}<br>≈ {fc.date_mu:%b %Y}<br>${fc.price_mu / 1000:,.0f}k"], textposition="middle right",
+        textfont=dict(size=11),
+        hovertemplate=(f"Forecast {label}<br>date {fc.date_mu:%Y-%m-%d} (68%: {d1:%b %d} – {d2:%b %d, %Y})"
+                       f"<br>price ${fc.price_mu:,.0f} (68%: ${p1:,.0f}–${p2:,.0f}; 95%: ${p95a:,.0f}–${p95b:,.0f})"
+                       f"<br>P(already happened) {fc.p_already:.0%}<extra></extra>")))
+    return x_end
