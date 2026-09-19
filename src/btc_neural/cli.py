@@ -80,6 +80,11 @@ def cmd_notify_test(a):
     print("sent:", sent)
 
 
+def cmd_send_chart(a):
+    from .live import send_chart
+    print("sent", send_chart())
+
+
 def cmd_app(a):
     app = ROOT / "src" / "btc_neural" / "app" / "Home.py"
     os.execvp(sys.executable, [sys.executable, "-m", "streamlit", "run", str(app), "--server.headless", "true"])
@@ -161,6 +166,7 @@ def main(argv: list[str] | None = None) -> None:
     d.set_defaults(fn=cmd_daily)
     sub.add_parser("setup-ntfy", help="create a private random ntfy topic in .env").set_defaults(fn=cmd_setup_ntfy)
     sub.add_parser("notify-test", help="send a test notification").set_defaults(fn=cmd_notify_test)
+    sub.add_parser("send-chart", help="push today's Home chart and forecast to ntfy").set_defaults(fn=cmd_send_chart)
     sub.add_parser("app", help="launch the Streamlit dashboard").set_defaults(fn=cmd_app)
     sub.add_parser("install-schedule", help="install the daily launchd job").set_defaults(fn=cmd_install_schedule)
     sub.add_parser("uninstall-schedule", help="remove the daily launchd job").set_defaults(fn=cmd_uninstall_schedule)

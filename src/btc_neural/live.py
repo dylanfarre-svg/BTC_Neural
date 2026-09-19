@@ -32,31 +32,109 @@ def health(daily: pd.DataFrame, feats: pd.DataFrame, ingest: dict[str, str]) -> 
     return problems
 
 
-def make_chart(daily: pd.DataFrame, hist: pd.DataFrame, out: Path, years: int = 4) -> Path:
+BUY_RAMP = ["#cde2fb", "#b7d3f6", "#9ec5f4", "#86b6ef", "#6da7ec", "#5598e7", "#3987e5", "#2a78d6", "#1c5cab", "#104281"]
+SELL_RAMP = ["#fbd5d4", "#f8c2c1", "#f5aeac", "#f19a98", "#ec8583", "#e76f6d", "#e34948", "#c93b3a", "#a82f2e", "#862423"]
+
+
+def make_chart(daily: pd.DataFrame, feats: pd.DataFrame, hist: pd.DataFrame, out: Path, years: int = 6,
+               show_forecast: bool = True) -> Path:
+    """PNG version of the dashboard Home chart: price + signals + next-extreme forecast, strength panel."""
     import matplotlib
     matplotlib.use("Agg")
+    import matplotlib.dates as mdates
     import matplotlib.pyplot as plt
+    from matplotlib.ticker import FuncFormatter
 
-    start = daily.index[-1] - pd.Timedelta(days=365 * years)
+    from .data import cycle_extremes
+    from .forecast import forecast_next
+
+    today = daily.index[-1]
+    start = today - pd.Timedelta(days=365 * years)
     c = daily["close"].loc[start:]
-    s = hist["strength"].reindex(c.index).fillna(0)
-    fig, ax = plt.subplots(figsize=(9, 4.5), dpi=110)
-    ax.plot(c.index, c.values, color="#444", lw=1.1)
+    s = hist["strength"].reindex(c.index).fillna(0).astype(int)
+    fc = forecast_next(daily, feats) if show_forecast else None
+    x_end = today + pd.Timedelta(days=60)
+    if fc is not None:
+        x_end = max(x_end, fc.date_mu + pd.Timedelta(days=3.2 * fc.date_sd + 25 * years + 45))
+
+    fig, (ax, ax2) = plt.subplots(2, 1, figsize=(11, 6.6), dpi=130, sharex=True,
+                                  gridspec_kw={"height_ratios": [2.3, 1], "hspace": 0.06})
+    ax.plot(c.index, c.values, color="#6f6e6a", lw=1.2, label="BTC/USD", zorder=2)
     ax.set_yscale("log")
-    for lvl_min, color, lab in ((10, "#104281", "Buy 10"), (7, "#6da7ec", "Buy 7-9")):
-        m = (s >= lvl_min) & (s < (11 if lvl_min == 10 else 10))
-        ax.scatter(c.index[m], c[m], color=color, s=14, label=lab, zorder=3)
-    for lvl_min, color, lab in ((10, "#b3261e", "Sell 10"), (7, "#ec8a89", "Sell 7-9")):
-        m = (-s >= lvl_min) & (-s < (11 if lvl_min == 10 else 10))
-        ax.scatter(c.index[m], c[m], color=color, s=14, label=lab, zorder=3)
-    ax.set_title(f"BTC/USD with model signals — today {fmt_strength(int(s.iloc[-1]))}")
-    ax.legend(loc="upper left", fontsize=8)
-    ax.grid(alpha=0.25)
-    fig.tight_layout()
+    ax.yaxis.set_major_formatter(FuncFormatter(lambda v, _: f"${v / 1000:,.0f}k" if v >= 1000 else f"${v:,.0f}"))
+    for cond, color, lab, marker, size in (
+        (s >= 10, "#2a78d6", "Buy 10", "^", 34), ((s >= 7) & (s < 10), "#86b6ef", "Buy 7-9", "^", 22),
+        (s <= -10, "#e34948", "Sell 10", "v", 34), ((s <= -7) & (s > -10), "#f0a09f", "Sell 7-9", "v", 22)):
+        if cond.any():
+            ax.scatter(c.index[cond], c[cond], color=color, s=size, marker=marker, label=lab, zorder=3,
+                       edgecolors="white", linewidths=0.4)
+    for e in cycle_extremes(daily["close"]):
+        if e.date >= start:
+            ax.annotate(f"cycle {e.kind}", (e.date, e.price), xytext=(0, 14 if e.kind == "top" else -16),
+                        textcoords="offset points", ha="center", fontsize=8, color="#444")
+
+    if fc is not None:
+        rgb = "#2a78d6" if fc.kind == "low" else "#e34948"
+        zs = np.linspace(-3, 3, 41)
+        dz = zs[1] - zs[0]
+        for z in zs:
+            a = 0.30 * float(np.exp(-z * z / 2))
+            ax.axvspan(fc.date_mu + pd.Timedelta(days=(z - dz / 2) * fc.date_sd),
+                       fc.date_mu + pd.Timedelta(days=(z + dz / 2) * fc.date_sd), color=rgb, alpha=a, lw=0, zorder=0)
+            ax.axhspan(np.exp(fc.logp_mu + (z - dz / 2) * fc.logp_sd), np.exp(fc.logp_mu + (z + dz / 2) * fc.logp_sd),
+                       color=rgb, alpha=0.75 * a, lw=0, zorder=0)
+        ax.axvline(fc.date_mu, color=rgb, lw=1.2, ls="--", zorder=1)
+        ax.axhline(fc.price_mu, color=rgb, lw=1.2, ls="--", zorder=1)
+        ax.scatter([fc.date_mu], [fc.price_mu], marker="D", s=60, color=rgb, edgecolors="white", zorder=4,
+                   label=f"Forecast next {fc.kind}")
+        p1, p2 = fc.price_interval(1)
+        ax.annotate(f"next cycle {fc.kind}\n≈ {fc.date_mu:%d %b %Y} ±{fc.date_sd:.0f}d\n${fc.price_mu / 1000:,.0f}k "
+                    f"(${p1 / 1000:,.0f}k–${p2 / 1000:,.0f}k)",
+                    (fc.date_mu, fc.price_mu), xytext=(10, 12), textcoords="offset points", va="bottom", fontsize=8, color=rgb,
+                    bbox=dict(boxstyle="round,pad=0.3", fc="white", ec=rgb, lw=0.6, alpha=0.9))
+    for a_ in (ax, ax2):
+        a_.axvline(today, color="#999", lw=0.8, ls=":")
+    ax.text(today, ax.get_ylim()[0], " today", fontsize=7, color="#777", va="bottom", ha="right")
+
+    colors = [BUY_RAMP[v - 1] if v > 0 else SELL_RAMP[-v - 1] if v < 0 else "#cccccc" for v in s]
+    ax2.bar(s.index, s.values, width=1.0, color=colors, linewidth=0)
+    ax2.set_ylim(-10.5, 10.5)
+    ax2.set_yticks([-10, -5, 0, 5, 10], ["Sell 10", "Sell 5", "0", "Buy 5", "Buy 10"], fontsize=8)
+    ax2.axhline(0, color="#999", lw=0.6)
+    ax2.set_xlim(start, x_end)
+    ax2.xaxis.set_major_locator(mdates.YearLocator())
+    ax2.xaxis.set_major_formatter(mdates.DateFormatter("%Y"))
+    for a_ in (ax, ax2):
+        a_.grid(alpha=0.2)
+        a_.spines[["top", "right"]].set_visible(False)
+    ax.set_title(f"BTC_Neural {today:%Y-%m-%d}: {fmt_strength(int(s.iloc[-1]))} at ${c.iloc[-1]:,.0f}",
+                 loc="left", fontsize=11)
+    ax.legend(loc="upper left", fontsize=7, ncol=3, frameon=False)
     out.parent.mkdir(parents=True, exist_ok=True)
-    fig.savefig(out)
+    fig.savefig(out, bbox_inches="tight", pad_inches=0.15)
     plt.close(fig)
     return out
+
+
+def send_chart(role: str = "production") -> Path:
+    """Build today's chart and push it (with a short summary) to ntfy."""
+    from .backtest import walkforward
+    from .forecast import forecast_next
+
+    daily, feats = walkforward.dataset()
+    h = pipeline.signal_history(role, feats)
+    if h is None:
+        raise RuntimeError("no production model; run `btcn train-production`")
+    date = daily.index[-1].strftime("%Y-%m-%d")
+    chart = make_chart(daily, feats, h, ROOT / "data" / "charts" / f"home_{date}.png")
+    fc = forecast_next(daily, feats)
+    msg = f"{date}  BTC ${daily['close'].iloc[-1]:,.0f}\nSignal: {fmt_strength(int(h['strength'].iloc[-1]))}"
+    if fc is not None:
+        p1, p2 = fc.price_interval(1)
+        msg += (f"\nForecast next cycle {fc.kind}: {fc.date_mu:%Y-%m-%d} +/-{fc.date_sd:.0f}d, "
+                f"${fc.price_mu:,.0f} (68%: ${p1:,.0f}-${p2:,.0f})")
+    dispatch(date, [Alert("chart", "BTC_Neural chart", msg, 3, "chart_with_upwards_trend", chart)], force=True)
+    return chart
 
 
 def build_alerts(date: str, price: float, prod: dict, ref: dict | None, recent: pd.Series,
@@ -143,7 +221,7 @@ def run_daily(notify: bool = True, force_notify: bool = False, verbose: bool = T
                 print(f"  PROBLEM: {p}")
         sent: list[str] = []
         if notify and "production" in out:
-            chart = make_chart(daily, hists["production"], ROOT / "data" / "charts" / f"signal_{date}.png")
+            chart = make_chart(daily, feats, hists["production"], ROOT / "data" / "charts" / f"signal_{date}.png")
             recent = hists["production"]["strength"].iloc[-8:]
             alerts = build_alerts(date, price, out["production"], out.get("reference_nn"), recent, problems, chart)
             sent = dispatch(date, alerts, force=force_notify)
@@ -161,4 +239,4 @@ def recent_live(limit: int = 60) -> pd.DataFrame:
     return db.query("SELECT * FROM live_signals ORDER BY date DESC, role LIMIT ?", (limit,))
 
 
-__all__ = ["run_daily", "build_alerts", "health", "make_chart", "fmt_strength", "recent_live", "np"]
+__all__ = ["run_daily", "build_alerts", "health", "make_chart", "send_chart", "fmt_strength", "recent_live", "np"]
