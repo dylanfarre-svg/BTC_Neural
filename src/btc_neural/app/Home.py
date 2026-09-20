@@ -75,9 +75,10 @@ def forecasts(stamp: str) -> dict:
 
 
 fcs = forecasts(stamp)
-c_years, c_fc = st.columns([3, 1])
+c_years, c_fc, c_hv = st.columns([3, 1, 1])
 years = c_years.slider("Years shown", 1, 16, 6)
 show_fc = c_fc.toggle("Show next-extreme forecasts", value=True)
+show_halvings = c_hv.toggle("Show halvings", value=False)
 picked: list[str] = []
 shaded = None
 if show_fc and fcs:
@@ -88,7 +89,7 @@ if show_fc and fcs:
     shaded = st.selectbox("Shade the Gaussian for", picked, index=0) if picked else None
 
 start = date - pd.Timedelta(days=365 * years)
-fig = signal_figure(daily["close"].loc[start:], prod["strength"].loc[start:],
+fig = signal_figure(daily["close"].loc[start:], prod["strength"].loc[start:], show_halvings=show_halvings,
                     title="Production model signals (in-sample before training cutoff; see Backtest for out-of-sample)")
 x_end = date
 for i, name in enumerate(picked):

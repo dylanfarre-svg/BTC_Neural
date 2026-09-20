@@ -30,7 +30,7 @@ Scheduling: `uv run btcn install-schedule` installs a launchd agent that runs `b
 | Data | Bitstamp 1d/4h candles, Coin Metrics BTC price + on-chain (MVRV, hash rate, issuance, addresses) and ETH price/market cap/addresses (2015-08+), FRED macro, Fear & Greed | `ingest/` |
 | Features | ~87 causal, scale-free features: MA ratios, Pi Cycle, log-regression residual, daily/weekly/monthly RSI (the current bar is partial), MVRV-Z, NUPL, Puell, hash ribbons, halving clock, causal "confirmed" cycle tops/lows, macro (with publication lags), 4-year percentiles, and ETH/BTC + ETH/USD relative strength | `features/` |
 | Label | Hindsight position within the cycle leg, from +1 (cycle low) to −1 (cycle top), computed **as of each training cutoff** | `labels.py` |
-| Models | Rule composite (no training), ridge, LightGBM with monotone constraints, a small temporal-CNN neural net (8 seeds, Apple GPU), ensembles | `models/` |
+| Models | Rule composite (no training), ridge, LightGBM with monotone constraints, a small temporal-CNN neural net (8 seeds, Apple GPU; weekly sequence of 10 BTC series plus 3 ETH/BTC channels when the feature set includes Ether), ensembles | `models/` |
 | Strength | The score maps to −10..+10 by budget (strength 10 = 10 days per 1460). Modes: `frozen` thresholds from training, `trailing` causal 3-year rank of the model's own scores, `hybrid`, `both` | `calibrate.py` |
 | Backtest | Halving epochs E1..E4. Each epoch is predicted by a model trained only on earlier epochs | `backtest/walkforward.py` |
 | Metrics | Distance of strength-10 signals from the true top/low (log), days from the extreme, wrong-side share, budget. **Selection = worst fold**, lower is better | `backtest/metrics.py` |
@@ -64,6 +64,9 @@ Every walk-forward run keeps its out-of-sample predictions in the `predictions` 
 signal and forecast stay available. The Home chart can display any of them.
 
 ## Configuration
+
+Every price chart in the app has a **Show halvings** toggle (halvings are scheduled, so they are
+context rather than hindsight); the estimated next halving is drawn dotted.
 
 `config/default.yaml` holds everything: cycle extremes (used only for labels and evaluation), signal budget,
 strength mode, simulation and tax settings, model hyperparameters and alert thresholds. Put overrides in

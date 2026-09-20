@@ -3,7 +3,7 @@
 import plotly.graph_objects as go
 import streamlit as st
 
-from btc_neural.app.common import BUY_10, PRICE, extremes_df, load_dataset, stacked_layout
+from btc_neural.app.common import BUY_10, PRICE, add_halving_lines, extremes_df, load_dataset, stacked_layout
 from btc_neural.features import FEATURE_GROUPS, FEATURE_SETS, columns_for
 
 st.set_page_config(page_title="Features · BTC_Neural", page_icon="₿", layout="wide")
@@ -16,6 +16,7 @@ c1, c2 = st.columns([1, 2])
 g = c1.selectbox("Group", ["cyclenorm (set)"] + groups)
 opts = columns_for("cyclenorm", list(feats.columns)) if g == "cyclenorm (set)" else [c for c in feats.columns if FEATURE_GROUPS.get(c) == g]
 feat = c2.selectbox("Feature", opts)
+show_halvings = st.toggle("Show halvings", value=False, key="feat_halvings")
 
 fig = go.Figure()
 fig.add_trace(go.Scatter(x=daily.index, y=daily["close"], name="BTC/USD", line=dict(color=PRICE, width=1.5),
@@ -24,6 +25,8 @@ fig.add_trace(go.Scatter(x=feats.index, y=feats[feat], name=feat, yaxis="y2", li
                          hovertemplate="%{y:.3f}"))
 for _, e in extremes_df().iterrows():
     fig.add_vline(x=e.date, line=dict(color="rgba(227,73,72,0.35)" if e.kind == "top" else "rgba(42,120,214,0.35)", dash="dot"))
+if show_halvings:
+    add_halving_lines(fig)
 stacked_layout(fig, "USD (log)", feat, 680, split=0.45)
 fig.update_layout(showlegend=False)
 st.plotly_chart(fig, use_container_width=True)

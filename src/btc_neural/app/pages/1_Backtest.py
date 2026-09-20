@@ -39,7 +39,9 @@ fr = db.query("SELECT fold, metric, value FROM fold_results WHERE run_id=?", (ru
 
 eps = epochs(end=close.index[-1], start=close.index[0])
 shade = [(n, a, b) for n, a, b in eps[1:]]
-st.plotly_chart(signal_figure(close.loc[preds.index[0]:], preds["strength"], shade=shade,
+show_halvings = st.toggle("Show halvings", value=False, key="bt_halvings",
+                          help="Test epochs already start at a halving; the lines make that explicit.")
+st.plotly_chart(signal_figure(close.loc[preds.index[0]:], preds["strength"], shade=shade, show_halvings=show_halvings,
                               title="Out-of-sample signals by test epoch (E1…E4)"), use_container_width=True)
 
 st.subheader("Signal quality per test cycle")

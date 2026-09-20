@@ -69,9 +69,25 @@ def stacked_layout(fig: go.Figure, top_title: str, bottom_title: str, height: in
     return fig
 
 
+def add_halving_lines(fig: go.Figure, x0: pd.Timestamp | None = None, x1: pd.Timestamp | None = None,
+                     row_ref: str = "paper") -> None:
+    """Vertical lines at each halving (and the estimated next one). Halvings are scheduled, so
+    they are legitimate context, not hindsight."""
+    from btc_neural.config import halvings, load_config
+    past = [(h, False) for h in halvings()]
+    nxt = pd.Timestamp(load_config()["next_halving_estimate"])
+    for h, is_est in past + [(nxt, True)]:
+        if (x0 is not None and h < x0) or (x1 is not None and h > x1):
+            continue
+        fig.add_vline(x=h, line=dict(color="rgba(140,140,140,0.75)", width=1, dash="dot" if is_est else "dashdot"),
+                      annotation_text=("next halving (est)" if is_est else f"halving {h:%Y}"),
+                      annotation_position="top right", annotation_font_size=9,
+                      annotation_font_color="rgba(150,150,150,0.95)")
+
+
 def signal_figure(close: pd.Series, strength: pd.Series, title: str = "", show_extremes: bool = True,
                   min_level: int = 7, shade: list[tuple[str, pd.Timestamp, pd.Timestamp]] | None = None,
-                  height: int = 680) -> go.Figure:
+                  height: int = 680, show_halvings: bool = False) -> go.Figure:
     """Log price with strong-signal markers, plus a panel with the full daily strength (-10..+10)."""
     s = strength.reindex(close.index).fillna(0).astype(int)
     fig = go.Figure()
@@ -101,6 +117,8 @@ def signal_figure(close: pd.Series, strength: pd.Series, title: str = "", show_e
     for name, a, b in shade or []:
         fig.add_vrect(x0=a, x1=b, fillcolor="rgba(128,128,128,0.07)", line_width=0,
                       annotation_text=name, annotation_position="top left", annotation_font_size=10)
+    if show_halvings:
+        add_halving_lines(fig, close.index[0])
     stacked_layout(fig, "USD (log)", "strength", height, title)
     fig.update_layout(bargap=0, yaxis2=dict(range=[-10.5, 10.5], tickvals=[-10, -5, 0, 5, 10],
                                             ticktext=["Sell 10", "Sell 5", "0", "Buy 5", "Buy 10"]))

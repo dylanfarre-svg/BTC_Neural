@@ -167,7 +167,10 @@ class _Net(nn.Module):
         return torch.tanh(self.head(torch.cat([self.static(x), hq], dim=1))).squeeze(1) * 1.2
 
 
-SEQ_FEATURES = ["mayer", "p_200w", "mvrv", "puell", "rsi_w", "dd_ath", "ret_30", "vol_30", "hash_ribbon", "rsi_m"]
+# Series fed to the temporal CNN as a weekly sequence. Entries absent from the model's feature
+# set are skipped, so the ETH/BTC channels only appear in feature sets that include Ether.
+SEQ_FEATURES = ["mayer", "p_200w", "mvrv", "puell", "rsi_w", "dd_ath", "ret_30", "vol_30", "hash_ribbon", "rsi_m",
+                "ethbtc", "ethbtc_ret_90", "ethbtc_dd_ath"]
 
 
 class NNModel(Model):
