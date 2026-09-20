@@ -49,6 +49,12 @@ Scheduling: `uv run btcn install-schedule` installs a launchd agent that runs `b
 | Weekly digest | Sundays |
 | Data problem | Ingest failure or stale data (a silent failure could hide a strength-10 day) |
 
+## Saved models
+
+Every walk-forward run keeps its out-of-sample predictions in the `predictions` table, and
+`btcn train-production` saves one trained model per type (`candidate_<type>` roles), so each model's
+signal and forecast stay available. The Home chart can display any of them.
+
 ## Configuration
 
 `config/default.yaml` holds everything: cycle extremes (used only for labels and evaluation), signal budget,
@@ -63,10 +69,6 @@ strength mode, simulation and tax settings, model hyperparameters and alert thre
 ```bash
 uv run pytest
 ```
-
-Every walk-forward run keeps its out-of-sample predictions in the `predictions` table, and
-`btcn train-production` saves one trained model per type (`candidate_<type>` roles), so each model's
-signal and forecast stay available. The Home chart can display any of them.
 
 `tests/test_no_lookahead.py` rebuilds all features on data truncated at six dates and asserts that they
 match the full-history values exactly. That makes the backtest honest.
