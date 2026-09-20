@@ -69,6 +69,23 @@ def stacked_layout(fig: go.Figure, top_title: str, bottom_title: str, height: in
     return fig
 
 
+HOVER_SPINE = "__hover_spine__"
+
+
+def add_hover_spine(fig: go.Figure, x0: pd.Timestamp, x1: pd.Timestamp, y: float) -> None:
+    """Invisible daily points spanning x0..x1 so the date tooltip and crosshair keep working where
+    no series has data (for example the forecast horizon beyond today). Updates the existing spine
+    if one was already added."""
+    xs = pd.date_range(x0, x1, freq="D")
+    ys = [float(y)] * len(xs)
+    for tr in fig.data:
+        if tr.name == HOVER_SPINE:
+            tr.x, tr.y = xs, ys
+            return
+    fig.add_trace(go.Scatter(x=xs, y=ys, mode="markers", name=HOVER_SPINE, showlegend=False,
+                             marker=dict(size=1, opacity=0), hovertemplate="<extra></extra>"))
+
+
 def add_halving_lines(fig: go.Figure, x0: pd.Timestamp | None = None, x1: pd.Timestamp | None = None,
                      row_ref: str = "paper") -> None:
     """Vertical lines at each halving (and the estimated next one). Halvings are scheduled, so
@@ -117,6 +134,7 @@ def signal_figure(close: pd.Series, strength: pd.Series, title: str = "", show_e
     for name, a, b in shade or []:
         fig.add_vrect(x0=a, x1=b, fillcolor="rgba(128,128,128,0.07)", line_width=0,
                       annotation_text=name, annotation_position="top left", annotation_font_size=10)
+    add_hover_spine(fig, close.index[0], close.index[-1], float(np.sqrt(close.min() * close.max())))
     if show_halvings:
         add_halving_lines(fig, close.index[0])
     stacked_layout(fig, "USD (log)", "strength", height, title)

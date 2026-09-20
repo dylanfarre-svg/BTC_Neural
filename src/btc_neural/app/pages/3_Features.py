@@ -3,7 +3,8 @@
 import plotly.graph_objects as go
 import streamlit as st
 
-from btc_neural.app.common import BUY_10, PRICE, add_halving_lines, extremes_df, load_dataset, stacked_layout
+from btc_neural.app.common import (BUY_10, PRICE, add_halving_lines, add_hover_spine, extremes_df, load_dataset,
+                                   stacked_layout)
 from btc_neural.features import FEATURE_GROUPS, FEATURE_SETS, columns_for
 
 st.set_page_config(page_title="Features · BTC_Neural", page_icon="₿", layout="wide")
@@ -25,6 +26,8 @@ fig.add_trace(go.Scatter(x=feats.index, y=feats[feat], name=feat, yaxis="y2", li
                          hovertemplate="%{y:.3f}"))
 for _, e in extremes_df().iterrows():
     fig.add_vline(x=e.date, line=dict(color="rgba(227,73,72,0.35)" if e.kind == "top" else "rgba(42,120,214,0.35)", dash="dot"))
+add_hover_spine(fig, daily.index[0], max(daily.index[-1], feats.index[-1]),
+                float((daily["close"].min() * daily["close"].max()) ** 0.5))
 if show_halvings:
     add_halving_lines(fig)
 stacked_layout(fig, "USD (log)", feat, 680, split=0.45)

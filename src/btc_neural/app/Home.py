@@ -7,8 +7,8 @@ import pandas as pd
 import streamlit as st
 
 from btc_neural import db, pipeline
-from btc_neural.app.common import (SOURCE_COLORS, add_forecast_marker, add_forecast_overlay, drivers_figure,
-                                   fmt_strength, gauge_html, load_dataset, signal_figure)
+from btc_neural.app.common import (SOURCE_COLORS, add_forecast_marker, add_forecast_overlay, add_hover_spine,
+                                   drivers_figure, fmt_strength, gauge_html, load_dataset, signal_figure)
 from btc_neural.forecast import forecast_next, hindcasts, model_forecast
 
 st.set_page_config(page_title="BTC_Neural", page_icon="₿", layout="wide")
@@ -100,7 +100,10 @@ for i, name in enumerate(picked):
         color = SOURCE_COLORS[i % len(SOURCE_COLORS)]
         x_end = max(x_end, add_forecast_marker(fig, fc_i, name.split(" · ")[0], color))
 if picked:
-    fig.update_xaxes(range=[start, x_end + pd.Timedelta(days=45 + 25 * years)])  # room for the label
+    right = x_end + pd.Timedelta(days=45 + 25 * years)  # room for the label
+    window = daily["close"].loc[start:]
+    add_hover_spine(fig, start, right, float(np.sqrt(window.min() * window.max())))
+    fig.update_xaxes(range=[start, right])
 st.plotly_chart(fig, use_container_width=True)
 
 if picked:
