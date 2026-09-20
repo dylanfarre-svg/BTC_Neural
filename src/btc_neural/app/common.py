@@ -72,12 +72,15 @@ def stacked_layout(fig: go.Figure, top_title: str, bottom_title: str, height: in
 HOVER_SPINE = "__hover_spine__"
 
 
-def add_hover_spine(fig: go.Figure, x0: pd.Timestamp, x1: pd.Timestamp, y: float) -> None:
+def add_hover_spine(fig: go.Figure, x0: pd.Timestamp, x1: pd.Timestamp, y: float, pad_frac: float = 0.06) -> None:
     """Invisible daily points spanning x0..x1 so the date tooltip and crosshair keep working where
-    no series has data (for example the forecast horizon beyond today). Updates the existing spine
-    if one was already added."""
-    xs = pd.date_range(x0, x1, freq="D")
+    no series has data: the forecast horizon beyond today, and the blank margins Plotly leaves at
+    each end of an auto-ranged axis. Updates the existing spine if one was already added."""
+    pad = pd.Timedelta(days=max(14, (x1 - x0).days * pad_frac))
+    xs = pd.date_range(x0 - pad, x1 + pad, freq="D")
     ys = [float(y)] * len(xs)
+    # Pin the visible range inside the spine, so Plotly adds no unhoverable margin of its own.
+    fig.update_xaxes(range=[x0 - pad / 2, x1 + pad / 2], hoverformat="%Y-%m-%d")
     for tr in fig.data:
         if tr.name == HOVER_SPINE:
             tr.x, tr.y = xs, ys

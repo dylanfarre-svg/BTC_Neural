@@ -7,7 +7,7 @@ import plotly.graph_objects as go
 import streamlit as st
 
 from btc_neural import db
-from btc_neural.app.common import BUY_10, PRICE, SELL_10, load_dataset, signal_figure
+from btc_neural.app.common import BUY_10, PRICE, SELL_10, add_hover_spine, load_dataset, signal_figure
 from btc_neural.backtest.simulator import simulate
 from btc_neural.backtest.walkforward import leaderboard, usdzar
 from btc_neural.config import load_config
@@ -92,16 +92,23 @@ m3.metric("Tax (paid + accrued)", f"${strat.summary['tax_paid_usd'] + strat.summ
 m4.metric("Avg sell price", f"${strat.summary['avg_sell_price']:,.0f}" if strat.summary["n_sells"] else "no sells")
 
 fig = go.Figure()
-fig.add_trace(go.Scatter(x=strat.equity.index, y=strat.equity["value_usd"], name="Strategy value", line=dict(color=BUY_10, width=2)))
-fig.add_trace(go.Scatter(x=dca.equity.index, y=dca.equity["value_usd"], name="Plain DCA value", line=dict(color=PRICE, width=2)))
+fig.add_trace(go.Scatter(x=strat.equity.index, y=strat.equity["value_usd"], name="Strategy value",
+                         line=dict(color=BUY_10, width=2), hovertemplate="$%{y:,.0f}"))
+fig.add_trace(go.Scatter(x=dca.equity.index, y=dca.equity["value_usd"], name="Plain DCA value",
+                         line=dict(color=PRICE, width=2), hovertemplate="$%{y:,.0f}"))
 fig.update_layout(height=340, margin=dict(l=10, r=10, t=30, b=10), yaxis_title="USD", hovermode="x unified",
-                  legend=dict(orientation="h", y=1.08), title="Portfolio value (USD)")
+                  legend=dict(orientation="h", y=1.08), title="Portfolio value (USD)",
+                  xaxis=dict(hoverformat="%Y-%m-%d"))
+add_hover_spine(fig, strat.equity.index[0], strat.equity.index[-1], float(strat.equity["value_usd"].median()))
 st.plotly_chart(fig, use_container_width=True)
 fig2 = go.Figure()
-fig2.add_trace(go.Scatter(x=strat.equity.index, y=strat.equity["btc"], name="Strategy BTC", line=dict(color=BUY_10, width=2)))
-fig2.add_trace(go.Scatter(x=dca.equity.index, y=dca.equity["btc"], name="Plain DCA BTC", line=dict(color=PRICE, width=2)))
+fig2.add_trace(go.Scatter(x=strat.equity.index, y=strat.equity["btc"], name="Strategy BTC",
+                          line=dict(color=BUY_10, width=2), hovertemplate="%{y:.4f} BTC"))
+fig2.add_trace(go.Scatter(x=dca.equity.index, y=dca.equity["btc"], name="Plain DCA BTC",
+                          line=dict(color=PRICE, width=2), hovertemplate="%{y:.4f} BTC"))
 fig2.update_layout(height=300, margin=dict(l=10, r=10, t=30, b=10), yaxis_title="BTC", hovermode="x unified",
-                   legend=dict(orientation="h", y=1.1), title="BTC held")
+                   legend=dict(orientation="h", y=1.1), title="BTC held", xaxis=dict(hoverformat="%Y-%m-%d"))
+add_hover_spine(fig2, strat.equity.index[0], strat.equity.index[-1], float(strat.equity["btc"].median()))
 st.plotly_chart(fig2, use_container_width=True)
 
 c1, c2 = st.columns(2)
