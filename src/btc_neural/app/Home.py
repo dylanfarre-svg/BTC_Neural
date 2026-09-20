@@ -7,9 +7,9 @@ import pandas as pd
 import streamlit as st
 
 from btc_neural import db, pipeline
-from btc_neural.app.common import (add_forecast_overlay, drivers_figure, fmt_strength, gauge_html, load_dataset,
-                                   signal_figure)
-from btc_neural.forecast import forecast_next, hindcasts
+from btc_neural.app.common import (SOURCE_COLORS, add_forecast_marker, add_forecast_overlay, drivers_figure,
+                                   fmt_strength, gauge_html, load_dataset, signal_figure)
+from btc_neural.forecast import forecast_next, hindcasts, model_forecast
 
 st.set_page_config(page_title="BTC_Neural", page_icon="₿", layout="wide")
 st.title("BTC_Neural: cycle signal")
@@ -59,43 +59,81 @@ with c4:
               help="Agreement between ensemble members / seeds. Single models report high.")
     st.metric("Raw score", f"{prod['score'].iloc[-1]:+.3f}", help="Model output; +1 ≈ cycle low, −1 ≈ cycle top")
 
+STAT = "Cycle-analog (statistical)"
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def forecasts(stamp: str) -> dict:
+    """Next-extreme forecast per source: the statistical cycle-analog model and every saved model
+    (each from its own out-of-sample score history)."""
+    out = {STAT: forecast_next(daily, feats)}
+    for r in pipeline.all_roles().itertuples():
+        f = model_forecast(pipeline.oos_scores(r.source_run_id), daily)
+        if f is not None:
+            out[f"{r.role} · {r.model_type}/{r.feature_set}"] = f
+    return {k: v for k, v in out.items() if v is not None}
+
+
+fcs = forecasts(stamp)
 c_years, c_fc = st.columns([3, 1])
 years = c_years.slider("Years shown", 1, 16, 6)
-show_fc = c_fc.toggle("Show next-extreme forecast", value=True)
+show_fc = c_fc.toggle("Show next-extreme forecasts", value=True)
+picked: list[str] = []
+shaded = None
+if show_fc and fcs:
+    default = [k for k in fcs if k == STAT or k.startswith("production")]
+    picked = st.multiselect("Forecast of the next cycle extreme — models to display", list(fcs), default=default,
+                            help="Each saved model forecasts from its own out-of-sample history; the statistical "
+                                 "model uses cycle gaps, halving timing, MVRV and the 200-week average.")
+    shaded = st.selectbox("Shade the Gaussian for", picked, index=0) if picked else None
+
 start = date - pd.Timedelta(days=365 * years)
 fig = signal_figure(daily["close"].loc[start:], prod["strength"].loc[start:],
                     title="Production model signals (in-sample before training cutoff; see Backtest for out-of-sample)")
-fc = forecast_next(daily, feats) if show_fc else None
-if fc is not None:
-    x_end = add_forecast_overlay(fig, fc, date, x_start=start)
+x_end = date
+for i, name in enumerate(picked):
+    fc_i = fcs[name]
+    if name == shaded:
+        x_end = max(x_end, add_forecast_overlay(fig, fc_i, date, x_start=start))
+    else:
+        color = SOURCE_COLORS[i % len(SOURCE_COLORS)]
+        x_end = max(x_end, add_forecast_marker(fig, fc_i, name.split(" · ")[0], color))
+if picked:
     fig.update_xaxes(range=[start, x_end + pd.Timedelta(days=45 + 25 * years)])  # room for the label
 st.plotly_chart(fig, use_container_width=True)
 
-if fc is not None:
-    st.subheader(f"Next cycle {fc.kind}: statistical forecast")
-    d1, d2 = fc.date_interval(1)
-    p1, p2 = fc.price_interval(1)
-    m1, m2, m3, m4 = st.columns(4)
-    m1.metric("Most likely date", fc.date_mu.strftime("%Y-%m-%d"))
-    m1.caption(f"±{fc.date_sd:.0f} days (1σ): {d1:%b %d} – {d2:%b %d, %Y}")
-    m2.metric("Most likely price", f"${fc.price_mu:,.0f}")
-    m2.caption(f"68% range: \\${p1:,.0f} – \\${p2:,.0f}")
-    m3.metric("Distance from today", f"{(fc.price_mu / price - 1) * 100:+.0f}%")
-    m3.caption(f"{(fc.date_mu - date).days} days ahead of the latest close (\\${price:,.0f})")
-    m4.metric("P(already happened)", f"{fc.p_already:.0%}", help="Share of the date Gaussian before today")
-    st.caption(f"Follows the cycle {fc.after.kind} of {fc.after.date:%Y-%m-%d} (\\${fc.after.price:,.0f}). Shading intensity is "
-               "the Gaussian density: the vertical band is the date, the horizontal band the price (log scale). "
-               "This is a separate cycle-analog model built from 3–4 past cycles, not the neural net. It assumes the "
-               "4-year rhythm continues.")
-    with st.expander("How the forecast is built, and how it did on past cycles"):
-        est = pd.DataFrame(
-            [{"estimator": e.name, "type": "date", "estimate": (pd.Timestamp("1970-01-01") + pd.Timedelta(days=e.mu)).strftime("%Y-%m-%d"),
-              "1σ": f"±{e.sd:.0f} days", "basis": e.note} for e in fc.time_estimates]
-            + [{"estimator": e.name, "type": "price", "estimate": f"${np.exp(e.mu):,.0f}",
-                "1σ": f"×/÷ {np.exp(e.sd):.2f}", "basis": e.note} for e in fc.price_estimates])
-        st.dataframe(est, use_container_width=True, hide_index=True)
-        st.markdown("**Hindcasts**: each past extreme forecast using only earlier cycles, made 180 days after the "
-                    "preceding extreme.")
+if picked:
+    kinds = {f.kind for f in fcs.values()}
+    st.subheader(f"Next cycle {'/'.join(sorted(kinds))}: forecasts by model")
+    rows = []
+    for name in picked:
+        f_ = fcs[name]
+        d1, d2 = f_.date_interval(1)
+        p1, p2 = f_.price_interval(1)
+        rows.append({"source": name, "kind": f_.kind, "date": f_.date_mu.strftime("%Y-%m-%d"),
+                     "date 68%": f"{d1:%d %b} – {d2:%d %b %Y}", "price": f_.price_mu,
+                     "price 68%": f"${p1:,.0f} – ${p2:,.0f}", "vs today": f_.price_mu / price - 1,
+                     "days ahead": (f_.date_mu - date).days, "P(already happened)": f_.p_already})
+    st.dataframe(pd.DataFrame(rows).style.format({"price": "${:,.0f}", "vs today": "{:+.0%}",
+                                                  "P(already happened)": "{:.0%}"}),
+                 use_container_width=True, hide_index=True)
+    st.caption("Shading intensity is the Gaussian density: the vertical band is the date, the horizontal band the "
+               "price (log scale); other models are drawn as a marker with 1σ error bars. These forecasts come from "
+               "3 past cycles, so treat the ranges as optimistic. They assume the 4-year rhythm continues.")
+    with st.expander("How each forecast is built, and how the statistical one did on past cycles"):
+        for name in picked:
+            f_ = fcs[name]
+            st.markdown(f"**{name}** — follows the cycle {f_.after.kind} of {f_.after.date:%Y-%m-%d} "
+                        f"(\\${f_.after.price:,.0f})")
+            est = pd.DataFrame(
+                [{"estimator": e.name, "type": "date",
+                  "estimate": (pd.Timestamp("1970-01-01") + pd.Timedelta(days=e.mu)).strftime("%Y-%m-%d"),
+                  "1σ": f"±{e.sd:.0f} days", "basis": e.note} for e in f_.time_estimates]
+                + [{"estimator": e.name, "type": "price", "estimate": f"${np.exp(e.mu):,.0f}",
+                    "1σ": f"×/÷ {np.exp(e.sd):.2f}", "basis": e.note} for e in f_.price_estimates])
+            st.dataframe(est, use_container_width=True, hide_index=True)
+        st.markdown("**Hindcasts of the statistical model**: each past extreme forecast using only earlier cycles, "
+                    "made 180 days after the preceding extreme.")
         hc = hindcasts(daily, feats)
         st.dataframe(hc.style.format({"date z": "{:+.2f}", "price z": "{:+.2f}", "forecast price": "${:,.0f}",
                                       "actual price": "${:,.0f}", "price error": "{:+.0%}"}),

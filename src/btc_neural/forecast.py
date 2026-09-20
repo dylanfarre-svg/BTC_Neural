@@ -225,3 +225,51 @@ def hindcasts(daily: pd.DataFrame, feats: pd.DataFrame, confirm_days: int = 180)
             "price z": (np.log(target.price) - f.logp_mu) / f.logp_sd,
         })
     return pd.DataFrame(rows)
+
+
+def model_forecast(score: pd.Series, daily: pd.DataFrame, extremes: list[Extreme] | None = None,
+                   asof: pd.Timestamp | None = None) -> Forecast | None:
+    """A forecast derived from one model's own score history (nearest-analog matching).
+
+    Today's reading is matched against the same model's readings during the equivalent phase of
+    past cycles — the decline from the previous top when forecasting a low, the rise from the
+    previous low when forecasting a top: "the last time this model read 0.21 on the way down, the
+    low was N days away and X% below." The spread across analog cycles becomes the uncertainty.
+    """
+    c = _cfg()
+    close = daily["close"]
+    asof = asof or min(score.dropna().index[-1], close.index[-1])
+    ex = [e for e in (extremes or cycle_extremes(close)) if e.date <= asof]
+    if len(ex) < 3 or score.dropna().empty:
+        return None
+    last = ex[-1]
+    kind = "low" if last.kind == "top" else "top"
+    s = score.dropna().loc[:asof]
+    if s.empty:
+        return None
+    s_now = float(s.iloc[-1])
+    # analog phases: (previous extreme -> target extreme) pairs of the same shape as now
+    phases = [(a, b) for a, b in zip(ex[:-1], ex[1:]) if a.kind == last.kind][-c["analog_cycles"]:]
+    days, gaps, notes = [], [], []
+    for a, b in phases:
+        win = s.loc[a.date:b.date]
+        if len(win) < 30:
+            continue
+        diff = (win - s_now).abs()
+        tol = max(0.02, 0.08 * float(win.max() - win.min()))
+        near = win.index[diff <= max(tol, float(diff.min()))]
+        d = pd.Timestamp(np.asarray(near, dtype="datetime64[ns]")[len(near) // 2]) if len(near) else diff.idxmin()
+        days.append((b.date - d).days)
+        gaps.append(float(np.log(b.price / close.loc[d])))
+        notes.append(f"{b.date:%Y-%m} {b.kind}: matched {d:%Y-%m-%d} (score {win.loc[d]:+.2f}), "
+                     f"{(b.date - d).days} days and {np.exp(gaps[-1]) - 1:+.0%} away")
+    if len(days) < 2:
+        return None
+    t_est = _mean_est("score analogs: days to extreme", days, _day(asof), note="; ".join(notes))
+    p_est = _mean_est("score analogs: price move to extreme", gaps, float(np.log(close.loc[:asof].iloc[-1])),
+                      note=f"today's score {s_now:+.2f}; moves " + ", ".join(f"{np.exp(g) - 1:+.0%}" for g in gaps))
+    if t_est is None or p_est is None:
+        return None
+    t_mu, t_sd = _combine([t_est], c["min_date_sd_days"])
+    p_mu, p_sd = _combine([p_est], c["min_logp_sd"])
+    return Forecast(kind, asof, last, _from_day(t_mu), t_sd, p_mu, p_sd, [t_est], [p_est])

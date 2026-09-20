@@ -35,7 +35,8 @@ Scheduling: `uv run btcn install-schedule` installs a launchd agent that runs `b
 | Backtest | Halving epochs E1..E4. Each epoch is predicted by a model trained only on earlier epochs | `backtest/walkforward.py` |
 | Metrics | Distance of strength-10 signals from the true top/low (log), days from the extreme, wrong-side share, budget. **Selection = worst fold**, lower is better | `backtest/metrics.py` |
 | Simulation | Monthly DCA + reserve, buys on buy signals, trims on sell signals above a core floor (25%), South African CGT in rand (40% inclusion × marginal rate, R40k exclusion, FIFO/HIFO/average lots, loss carry-forward) | `backtest/simulator.py` |
-| Production | Best run retrained on all data. The best NN is always kept as a reference track | `pipeline.py` |
+| Production | Best run retrained on all data, plus the best configuration of **every** model type, all saved under `runs/` | `pipeline.py` |
+| Forecast | Next cycle extreme (date + price) as Gaussians: a statistical cycle-analog model, and one per saved model from its own out-of-sample score history | `forecast.py` |
 | Live | Append-only `live_signals` table (enforced by SQLite triggers), alerts via ntfy + macOS | `live.py`, `notify.py` |
 
 ### Alerts
@@ -62,6 +63,10 @@ strength mode, simulation and tax settings, model hyperparameters and alert thre
 ```bash
 uv run pytest
 ```
+
+Every walk-forward run keeps its out-of-sample predictions in the `predictions` table, and
+`btcn train-production` saves one trained model per type (`candidate_<type>` roles), so each model's
+signal and forecast stay available. The Home chart can display any of them.
 
 `tests/test_no_lookahead.py` rebuilds all features on data truncated at six dates and asserts that they
 match the full-history values exactly. That makes the backtest honest.

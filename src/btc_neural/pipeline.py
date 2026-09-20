@@ -20,6 +20,10 @@ from .models import Model
 ROLES = ("production", "reference_nn")
 
 
+def candidate_role(model_type: str) -> str:
+    return f"candidate_{model_type}"
+
+
 def best_run(nn_only: bool = False, exclude: tuple[str, str] | None = None) -> pd.Series | None:
     """Best walk-forward run; `exclude` = (model_type, feature_set) to skip."""
     lb = leaderboard()
@@ -73,6 +77,36 @@ def train_production(source_run_id: str | None = None, role: str = "production",
     if verbose:
         print(f"  {role}: {run_id} (from {source_run_id}, selection_score={run.selection_score:.3f})")
     return run_id
+
+
+def train_all_candidates(verbose: bool = True) -> list[str]:
+    """Keep one trained model per model type: the best walk-forward configuration of each,
+    retrained on all data. Preserved so their signals and forecasts stay available."""
+    from .models import MODEL_TYPES
+    out = []
+    lb = leaderboard()
+    for mt in MODEL_TYPES:
+        sub = lb[lb.model_type == mt].dropna(subset=["selection_score"])
+        if sub.empty:
+            continue
+        out.append(train_production(sub.iloc[0].run_id, role=candidate_role(mt), verbose=verbose))
+    return out
+
+
+def all_roles() -> pd.DataFrame:
+    """Every saved model, newest per role: production, NN reference and one per model type."""
+    df = db.query("SELECT role, run_id, model_type, feature_set, selection_score, created_at, weights_path, "
+                  "json_extract(config_json,'$.source_run_id') AS source_run_id FROM runs "
+                  "WHERE role != 'experiment' ORDER BY created_at DESC")
+    return df.drop_duplicates("role")
+
+
+def oos_scores(source_run_id: str) -> pd.Series:
+    """Walk-forward (out-of-sample) score series stored for a run."""
+    df = db.query("SELECT date, score FROM predictions WHERE run_id=? ORDER BY date", (source_run_id,))
+    if df.empty:
+        return pd.Series(dtype=float)
+    return pd.Series(df["score"].to_numpy(), index=pd.to_datetime(df["date"]))
 
 
 def current(role: str) -> tuple[Model, dict, str] | None:

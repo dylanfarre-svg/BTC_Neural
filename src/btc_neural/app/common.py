@@ -58,12 +58,12 @@ def stacked_layout(fig: go.Figure, top_title: str, bottom_title: str, height: in
     """Two panels on ONE shared x axis, so a single hover line/tooltip spans both panels."""
     fig.update_layout(
         title=dict(text=title, y=0.98, yanchor="top"), height=height,
-        margin=dict(l=10, r=10, t=80 if title else 40, b=10),
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, x=0),
+        margin=dict(l=10, r=10, t=50 if title else 30, b=70),
+        legend=dict(orientation="h", yanchor="top", y=-0.08, x=0),
         hovermode="x unified", hoversubplots="axis",
         xaxis=dict(anchor="y2", gridcolor=GRID, hoverformat="%Y-%m-%d", showspikes=True, spikemode="across", spikesnap="cursor",
                    spikethickness=1, spikedash="solid", spikecolor="rgba(128,128,128,0.7)"),
-        yaxis=dict(domain=[split + 0.06, 1.0], type="log" if top_log else "linear", title=top_title, gridcolor=GRID),
+        yaxis=dict(domain=[split + 0.07, 1.0], type="log" if top_log else "linear", title=top_title, gridcolor=GRID),
         yaxis2=dict(domain=[0.0, split], title=bottom_title, gridcolor=GRID, zerolinecolor="rgba(128,128,128,0.5)"),
     )
     return fig
@@ -179,3 +179,24 @@ def add_forecast_overlay(fig: go.Figure, fc, today: pd.Timestamp, x_start: pd.Ti
                        f"<br>price ${fc.price_mu:,.0f} (68%: ${p1:,.0f}–${p2:,.0f}; 95%: ${p95a:,.0f}–${p95b:,.0f})"
                        f"<br>P(already happened) {fc.p_already:.0%}<extra></extra>")))
     return x_end
+
+
+# Categorical hues for forecast sources (fixed order, never cycled).
+SOURCE_COLORS = ["#eb6834", "#1baf7a", "#eda100", "#e87ba4", "#008300", "#4a3aa7", "#2a78d6"]
+
+
+def add_forecast_marker(fig: go.Figure, fc, label: str, color: str) -> pd.Timestamp:
+    """One forecast as a marker with 1σ error bars in both date and price."""
+    p1, p2 = fc.price_interval(1)
+    p95a, p95b = fc.price_interval(1.96)
+    d1, d2 = fc.date_interval(1)
+    fig.add_trace(go.Scatter(
+        x=[fc.date_mu], y=[fc.price_mu], mode="markers", name=label,
+        marker=dict(symbol="diamond", size=11, color=color, line=dict(width=1.2, color="rgba(255,255,255,0.9)")),
+        error_x=dict(type="data", array=[fc.date_sd * 86_400_000], color=color, thickness=1.4, width=5),
+        error_y=dict(type="data", symmetric=False, array=[p2 - fc.price_mu], arrayminus=[fc.price_mu - p1],
+                     color=color, thickness=1.4, width=5),
+        hovertemplate=(f"{label}<br>next cycle {fc.kind}<br>date {fc.date_mu:%Y-%m-%d} "
+                       f"(68%: {d1:%b %d} – {d2:%b %d, %Y})<br>price ${fc.price_mu:,.0f} "
+                       f"(68%: ${p1:,.0f}–${p2:,.0f}; 95%: ${p95a:,.0f}–${p95b:,.0f})<extra></extra>")))
+    return fc.date_mu + pd.Timedelta(days=1.5 * fc.date_sd)

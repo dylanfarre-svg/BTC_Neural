@@ -37,7 +37,7 @@ SELL_RAMP = ["#fbd5d4", "#f8c2c1", "#f5aeac", "#f19a98", "#ec8583", "#e76f6d", "
 
 
 def make_chart(daily: pd.DataFrame, feats: pd.DataFrame, hist: pd.DataFrame, out: Path, years: int = 6,
-               show_forecast: bool = True) -> Path:
+               show_forecast: bool = True, model_scores: pd.Series | None = None) -> Path:
     """PNG version of the dashboard Home chart: price + signals + next-extreme forecast, strength panel."""
     import matplotlib
     matplotlib.use("Agg")
@@ -46,16 +46,19 @@ def make_chart(daily: pd.DataFrame, feats: pd.DataFrame, hist: pd.DataFrame, out
     from matplotlib.ticker import FuncFormatter
 
     from .data import cycle_extremes
-    from .forecast import forecast_next
+    from .forecast import forecast_next, model_forecast
 
     today = daily.index[-1]
     start = today - pd.Timedelta(days=365 * years)
     c = daily["close"].loc[start:]
     s = hist["strength"].reindex(c.index).fillna(0).astype(int)
     fc = forecast_next(daily, feats) if show_forecast else None
+    mfc = model_forecast(model_scores, daily) if (show_forecast and model_scores is not None and len(model_scores)) else None
     x_end = today + pd.Timedelta(days=60)
     if fc is not None:
         x_end = max(x_end, fc.date_mu + pd.Timedelta(days=3.2 * fc.date_sd + 25 * years + 45))
+    if mfc is not None:
+        x_end = max(x_end, mfc.date_mu + pd.Timedelta(days=1.5 * mfc.date_sd + 25 * years))
 
     fig, (ax, ax2) = plt.subplots(2, 1, figsize=(11, 6.6), dpi=130, sharex=True,
                                   gridspec_kw={"height_ratios": [2.3, 1], "hspace": 0.06})
@@ -90,8 +93,15 @@ def make_chart(daily: pd.DataFrame, feats: pd.DataFrame, hist: pd.DataFrame, out
         p1, p2 = fc.price_interval(1)
         ax.annotate(f"next cycle {fc.kind}\n≈ {fc.date_mu:%d %b %Y} ±{fc.date_sd:.0f}d\n${fc.price_mu / 1000:,.0f}k "
                     f"(${p1 / 1000:,.0f}k–${p2 / 1000:,.0f}k)",
-                    (fc.date_mu, fc.price_mu), xytext=(10, 12), textcoords="offset points", va="bottom", fontsize=8, color=rgb,
+                    (fc.date_mu, fc.price_mu), xytext=(-12, 16), textcoords="offset points", va="bottom", ha="right",
+                    fontsize=8, color=rgb,
                     bbox=dict(boxstyle="round,pad=0.3", fc="white", ec=rgb, lw=0.6, alpha=0.9))
+    if mfc is not None:
+        p1, p2 = mfc.price_interval(1)
+        ax.errorbar([mfc.date_mu], [mfc.price_mu], xerr=[pd.Timedelta(days=mfc.date_sd)],
+                    yerr=[[mfc.price_mu - p1], [p2 - mfc.price_mu]], fmt="D", ms=6, color="#1baf7a",
+                    ecolor="#1baf7a", elinewidth=1.2, capsize=3, zorder=4,
+                    label=f"model forecast: {mfc.date_mu:%b %Y}, ${mfc.price_mu / 1000:,.0f}k")
     for a_ in (ax, ax2):
         a_.axvline(today, color="#999", lw=0.8, ls=":")
     ax.text(today, ax.get_ylim()[0], " today", fontsize=7, color="#777", va="bottom", ha="right")
@@ -126,7 +136,9 @@ def send_chart(role: str = "production") -> Path:
     if h is None:
         raise RuntimeError("no production model; run `btcn train-production`")
     date = daily.index[-1].strftime("%Y-%m-%d")
-    chart = make_chart(daily, feats, h, ROOT / "data" / "charts" / f"home_{date}.png")
+    src = pipeline.all_roles().set_index("role").loc[role, "source_run_id"]
+    chart = make_chart(daily, feats, h, ROOT / "data" / "charts" / f"home_{date}.png",
+                       model_scores=pipeline.oos_scores(src))
     fc = forecast_next(daily, feats)
     msg = f"{date}  BTC ${daily['close'].iloc[-1]:,.0f}\nSignal: {fmt_strength(int(h['strength'].iloc[-1]))}"
     if fc is not None:
@@ -192,6 +204,13 @@ def run_daily(notify: bool = True, force_notify: bool = False, verbose: bool = T
                     pipeline.train_production(role=role, verbose=verbose)
                 except RuntimeError as e:
                     problems.append(f"{role}: {e}")
+        # keep one trained model per model type, so every model's signal and forecast stay current
+        cand = [r for r in pipeline.all_roles().role if r.startswith("candidate_")]
+        if not cand or min(pipeline.age_days(r) for r in cand) > retrain_days:
+            try:
+                pipeline.train_all_candidates(verbose=verbose)
+            except RuntimeError as e:
+                problems.append(f"candidates: {e}")
 
         date = daily.index[-1].strftime("%Y-%m-%d")
         price = float(daily["close"].iloc[-1])
@@ -221,7 +240,9 @@ def run_daily(notify: bool = True, force_notify: bool = False, verbose: bool = T
                 print(f"  PROBLEM: {p}")
         sent: list[str] = []
         if notify and "production" in out:
-            chart = make_chart(daily, feats, hists["production"], ROOT / "data" / "charts" / f"signal_{date}.png")
+            src = pipeline.all_roles().set_index("role").loc["production", "source_run_id"]
+            chart = make_chart(daily, feats, hists["production"], ROOT / "data" / "charts" / f"signal_{date}.png",
+                               model_scores=pipeline.oos_scores(src))
             recent = hists["production"]["strength"].iloc[-8:]
             alerts = build_alerts(date, price, out["production"], out.get("reference_nn"), recent, problems, chart)
             sent = dispatch(date, alerts, force=force_notify)

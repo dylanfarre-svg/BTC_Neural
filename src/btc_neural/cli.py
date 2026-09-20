@@ -54,10 +54,12 @@ def cmd_leaderboard(a):
 
 
 def cmd_train_production(a):
-    from .pipeline import train_production
+    from .pipeline import train_all_candidates, train_production
     train_production(a.run_id, role="production")
     if not a.skip_nn:
         train_production(a.nn_run_id, role="reference_nn")
+    if not a.skip_candidates:
+        train_all_candidates()
 
 
 def cmd_daily(a):
@@ -159,6 +161,7 @@ def main(argv: list[str] | None = None) -> None:
     tp.add_argument("--run-id")
     tp.add_argument("--nn-run-id")
     tp.add_argument("--skip-nn", action="store_true")
+    tp.add_argument("--skip-candidates", action="store_true", help="do not retrain one model per type")
     tp.set_defaults(fn=cmd_train_production)
     d = sub.add_parser("daily", help="ingest, predict, log and notify")
     d.add_argument("--no-notify", action="store_true")
