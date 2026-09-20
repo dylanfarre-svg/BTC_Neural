@@ -33,6 +33,13 @@ COINMETRICS_METRICS = {
     "IssTotUSD": ("Miner issuance value, USD (for Puell multiple)", "A"),
 }
 
+# Ether, as a second market: ETH/USD and (derived) ETH/BTC. History starts 2015-08.
+COINMETRICS_ETH_METRICS = {
+    "PriceUSD": ("Ether reference price, USD", "B"),
+    "CapMrktCurUSD": ("Ether market capitalisation, USD", "B"),
+    "AdrActCnt": ("Ether active addresses", "B"),
+}
+
 FRED_SERIES = {
     # name: (description, publication lag in days, tier)
     "M2SL": ("US M2 money stock (monthly, dated month start)", 60, "M"),
@@ -127,10 +134,16 @@ def ingest_bitstamp() -> int:
 
 @_logged("coinmetrics")
 def ingest_coinmetrics() -> int:
-    last = db.query("SELECT MAX(date) AS d FROM series WHERE source='coinmetrics'")["d"].iloc[0]
+    return _ingest_cm_asset("btc", COINMETRICS_METRICS, prefix="") + \
+        _ingest_cm_asset("eth", COINMETRICS_ETH_METRICS, prefix="ETH_")
+
+
+def _ingest_cm_asset(asset: str, metrics: dict, prefix: str) -> int:
+    source = f"coinmetrics_{asset}"
+    last = db.query("SELECT MAX(date) AS d FROM series WHERE source=?", (source,))["d"].iloc[0]
     start = (pd.Timestamp(last) - pd.Timedelta(days=10)).strftime("%Y-%m-%d") if last else "2010-01-01"
     url = "https://community-api.coinmetrics.io/v4/timeseries/asset-metrics"
-    params = {"assets": "btc", "metrics": ",".join(COINMETRICS_METRICS), "frequency": "1d",
+    params = {"assets": asset, "metrics": ",".join(metrics), "frequency": "1d",
               "start_time": start, "page_size": 10000, "paging_from": "start"}
     rows: list[dict] = []
     r = _get(url, params).json()
@@ -142,12 +155,13 @@ def ingest_coinmetrics() -> int:
         return 0
     df = pd.DataFrame(rows)
     df["date"] = pd.to_datetime(df["time"]).dt.strftime("%Y-%m-%d")
-    long = df.melt(id_vars="date", value_vars=[m for m in COINMETRICS_METRICS if m in df], var_name="name").dropna()
+    long = df.melt(id_vars="date", value_vars=[m for m in metrics if m in df], var_name="name").dropna()
     long["value"] = long["value"].astype(float)
-    long["source"] = "coinmetrics"
+    long["name"] = prefix + long["name"]
+    long["source"] = source
     long["fetched_at"] = db.now_utc()
-    meta = pd.DataFrame([{"name": k, "source": "coinmetrics", "tier": t, "publication_lag_days": 0, "description": d}
-                         for k, (d, t) in COINMETRICS_METRICS.items()])
+    meta = pd.DataFrame([{"name": prefix + k, "source": source, "tier": t, "publication_lag_days": 0, "description": d}
+                         for k, (d, t) in metrics.items()])
     with db.connect() as con:
         db.upsert(con, "series_meta", meta)
         return db.upsert(con, "series", long[["name", "date", "value", "source", "fetched_at"]])

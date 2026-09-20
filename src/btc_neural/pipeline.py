@@ -85,11 +85,18 @@ def train_all_candidates(verbose: bool = True) -> list[str]:
     from .models import MODEL_TYPES
     out = []
     lb = leaderboard()
+    type_roles = set()
     for mt in MODEL_TYPES:
         sub = lb[lb.model_type == mt].dropna(subset=["selection_score"])
         if sub.empty:
             continue
+        type_roles.add(candidate_role(mt))
         out.append(train_production(sub.iloc[0].run_id, role=candidate_role(mt), verbose=verbose))
+    # refresh any extra saved models (e.g. candidate_nn_eth) from the run they were built from
+    extra = all_roles()
+    for r in extra[extra.role.str.startswith("candidate_")].itertuples():
+        if r.role not in type_roles and r.source_run_id:
+            out.append(train_production(r.source_run_id, role=r.role, verbose=verbose))
     return out
 
 

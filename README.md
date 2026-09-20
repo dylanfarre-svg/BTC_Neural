@@ -27,8 +27,8 @@ Scheduling: `uv run btcn install-schedule` installs a launchd agent that runs `b
 
 | Stage | What happens | Code |
 |---|---|---|
-| Data | Bitstamp 1d/4h candles, Coin Metrics price + on-chain (MVRV, hash rate, issuance, addresses), FRED macro, Fear & Greed | `ingest/` |
-| Features | ~75 causal, scale-free features: MA ratios, Pi Cycle, log-regression residual, daily/weekly/monthly RSI (the current bar is partial), MVRV-Z, NUPL, Puell, hash ribbons, halving clock, causal "confirmed" cycle tops/lows, macro (with publication lags), 4-year percentiles | `features/` |
+| Data | Bitstamp 1d/4h candles, Coin Metrics BTC price + on-chain (MVRV, hash rate, issuance, addresses) and ETH price/market cap/addresses (2015-08+), FRED macro, Fear & Greed | `ingest/` |
+| Features | ~87 causal, scale-free features: MA ratios, Pi Cycle, log-regression residual, daily/weekly/monthly RSI (the current bar is partial), MVRV-Z, NUPL, Puell, hash ribbons, halving clock, causal "confirmed" cycle tops/lows, macro (with publication lags), 4-year percentiles, and ETH/BTC + ETH/USD relative strength | `features/` |
 | Label | Hindsight position within the cycle leg, from +1 (cycle low) to −1 (cycle top), computed **as of each training cutoff** | `labels.py` |
 | Models | Rule composite (no training), ridge, LightGBM with monotone constraints, a small temporal-CNN neural net (8 seeds, Apple GPU), ensembles | `models/` |
 | Strength | The score maps to −10..+10 by budget (strength 10 = 10 days per 1460). Modes: `frozen` thresholds from training, `trailing` causal 3-year rank of the model's own scores, `hybrid`, `both` | `calibrate.py` |
@@ -48,6 +48,14 @@ Scheduling: `uv run btcn install-schedule` installs a launchd agent that runs `b
 | NN disagreement | NN reference differs from production by ≥ 5 levels |
 | Weekly digest | Sundays |
 | Data problem | Ingest failure or stale data (a silent failure could hide a strength-10 day) |
+
+## Feature sets
+
+`core` (price + on-chain + cycle clock), `cyclenorm` (amplitude-free only), `core_macro`, `core_calendar`,
+`core_intraday`, `price_clock`, `no_clock`, and `core_eth` / `cyclenorm_eth` which add the Ether inputs
+(ETH/BTC ratio vs its own year average, 90/365-day moves, drawdown from the ETH/BTC high, 4-year
+percentile, ETH/USD trend and volatility relative to BTC, ETH share of BTC market cap, ETH address
+growth). ETH history starts 2015-08, so those columns are empty for the earliest cycles.
 
 ## Saved models
 

@@ -28,6 +28,9 @@ FEATURE_SETS: dict[str, list[str]] = {
     # Only amplitude-free features (4-year percentiles, oscillators, cycle clocks), to cope with
     # each cycle being weaker than the last.
     "cyclenorm": ["cyclenorm"],
+    # production feature set plus Ether (ETH/BTC and ETH/USD); ETH history starts 2015-08
+    "core_eth": ["price", "onchain", "clock", "eth"],
+    "cyclenorm_eth": ["cyclenorm", "eth"],
 }
 
 CYCLENORM = [
@@ -302,6 +305,39 @@ def intraday_features(d: pd.DataFrame, h4: pd.DataFrame | None) -> pd.DataFrame:
     return f
 
 
+def eth_features(d: pd.DataFrame, s: pd.DataFrame) -> pd.DataFrame:
+    """Ether as a second market: ETH/BTC and ETH/USD (history starts 2015-08, so NaN before that).
+
+    ETH/BTC tends to lead risk appetite within the crypto cycle, which BTC-only inputs cannot see.
+    """
+    f = pd.DataFrame(index=d.index)
+    s = s.reindex(d.index).ffill(limit=5)
+    if "ETH_PriceUSD" not in s:
+        return f
+    eth = s["ETH_PriceUSD"]
+    ethbtc = eth / d["close"]
+    lr = np.log(ethbtc)
+    f[_reg("ethbtc", "eth")] = lr - np.log(sma(ethbtc, 365, 180))
+    f[_reg("ethbtc_ret_90", "eth")] = lr - lr.shift(90)
+    f[_reg("ethbtc_ret_365", "eth")] = lr - lr.shift(365)
+    f[_reg("ethbtc_dd_ath", "eth")] = lr - np.log(ethbtc.cummax())
+    f[_reg("ethbtc_pct4y", "eth")] = rolling_pct(lr)
+    le = np.log(eth)
+    f[_reg("eth_vs_sma200", "eth")] = le - np.log(sma(eth, 200, 100))
+    f[_reg("eth_ret_90", "eth")] = le - le.shift(90)
+    f[_reg("eth_ret_365", "eth")] = le - le.shift(365)
+    f[_reg("eth_vol_ratio", "eth")] = np.log(
+        le.diff().rolling(90, min_periods=45).std() / np.log(d["close"]).diff().rolling(90, min_periods=45).std())
+    if "ETH_CapMrktCurUSD" in s and "CapMrktCurUSD" in s:
+        share = np.log(s["ETH_CapMrktCurUSD"] / s["CapMrktCurUSD"])
+        f[_reg("eth_btc_mcap", "eth")] = share
+        f[_reg("eth_btc_mcap_pct4y", "eth")] = rolling_pct(share)
+    if "ETH_AdrActCnt" in s:
+        a = sma(s["ETH_AdrActCnt"], 30)
+        f[_reg("eth_adr_growth", "eth")] = np.log(a / a.shift(365))
+    return f
+
+
 def sentiment_features(d: pd.DataFrame, s: pd.DataFrame) -> pd.DataFrame:
     f = pd.DataFrame(index=d.index)
     if "FearGreed" in s:
@@ -319,6 +355,7 @@ def build_features(daily: pd.DataFrame, series: pd.DataFrame, lags: dict[str, in
         macro_features(daily, series, lags),
         calendar_features(daily),
         intraday_features(daily, h4),
+        eth_features(daily, series),
         sentiment_features(daily, series),
     ]
     f = pd.concat(parts, axis=1)
@@ -327,8 +364,9 @@ def build_features(daily: pd.DataFrame, series: pd.DataFrame, lags: dict[str, in
 
 def columns_for(feature_set: str, available: list[str]) -> list[str]:
     groups = FEATURE_SETS[feature_set]
-    if groups == ["cyclenorm"]:
-        return [c for c in CYCLENORM if c in available]
+    if "cyclenorm" in groups:
+        extra = [c for c in available if FEATURE_GROUPS.get(c) in groups and c not in CYCLENORM]
+        return [c for c in CYCLENORM if c in available] + extra
     return [c for c in available if FEATURE_GROUPS.get(c) in groups]
 
 
