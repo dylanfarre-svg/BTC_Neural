@@ -271,11 +271,20 @@ def macro_features(d: pd.DataFrame, s: pd.DataFrame, lags: dict[str, int]) -> pd
         yoy.index = yoy.index + pd.Timedelta(days=lags.get("M2SL", 60))
         f[_reg("m2_yoy", "macro")] = yoy.reindex(yoy.index.union(d.index)).ffill().reindex(d.index)
     walcl, dxy, y10 = avail("WALCL"), avail("DTWEXBGS"), avail("DGS10")
+    ff, real10, curve = avail("DFF"), avail("DFII10"), avail("T10Y2Y")
     f[_reg("fed_bs_yoy", "macro")] = np.log(walcl / walcl.shift(365))
     f[_reg("dxy_chg_90", "macro")] = np.log(dxy / dxy.shift(90))
     f[_reg("dxy_chg_365", "macro")] = np.log(dxy / dxy.shift(365))
     f[_reg("us10y", "macro")] = y10
     f[_reg("us10y_chg_180", "macro")] = y10 - y10.shift(180)
+    # policy rate: level, direction, and where it sits in its own 4-year range
+    f[_reg("fed_funds", "macro")] = ff
+    f[_reg("fed_funds_chg_180", "macro")] = ff - ff.shift(180)
+    f[_reg("fed_funds_chg_365", "macro")] = ff - ff.shift(365)
+    f[_reg("fed_funds_pct4y", "macro")] = rolling_pct(ff)
+    f[_reg("real_yield_10y", "macro")] = real10
+    f[_reg("yield_curve", "macro")] = curve
+    f[_reg("m2_yoy_chg_365", "macro")] = f["m2_yoy"] - f["m2_yoy"].shift(365) if "m2_yoy" in f else np.nan
     return f
 
 

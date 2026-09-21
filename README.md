@@ -27,7 +27,7 @@ Scheduling: `uv run btcn install-schedule` installs a launchd agent that runs `b
 
 | Stage | What happens | Code |
 |---|---|---|
-| Data | Bitstamp 1d/4h candles, Coin Metrics BTC price + on-chain (MVRV, hash rate, issuance, addresses) and ETH price/market cap/addresses (2015-08+), FRED macro, Fear & Greed | `ingest/` |
+| Data | Bitstamp 1d/4h candles, Coin Metrics BTC price + on-chain (MVRV, hash rate, issuance, addresses) and ETH price/market cap/addresses (2015-08+), FRED macro (M2, Fed balance sheet, fed funds rate, 10-year nominal/real yields, 2s10s curve, dollar index, USD/ZAR), Fear & Greed | `ingest/` |
 | Features | ~87 causal, scale-free features: MA ratios, Pi Cycle, log-regression residual, daily/weekly/monthly RSI (the current bar is partial), MVRV-Z, NUPL, Puell, hash ribbons, halving clock, causal "confirmed" cycle tops/lows, macro (with publication lags), 4-year percentiles, and ETH/BTC + ETH/USD relative strength | `features/` |
 | Label | Hindsight position within the cycle leg, from +1 (cycle low) to −1 (cycle top), computed **as of each training cutoff** | `labels.py` |
 | Models | Rule composite (no training), ridge, LightGBM with monotone constraints, a small temporal-CNN neural net (8 seeds, Apple GPU; weekly sequence of 10 BTC series plus 3 ETH/BTC channels when the feature set includes Ether), ensembles | `models/` |
@@ -52,7 +52,9 @@ Scheduling: `uv run btcn install-schedule` installs a launchd agent that runs `b
 ## Feature sets
 
 `core` (price + on-chain + cycle clock), `cyclenorm` (amplitude-free only), `core_macro`, `core_calendar`,
-`core_intraday`, `price_clock`, `no_clock`, and `core_eth` / `cyclenorm_eth` which add the Ether inputs
+`core_intraday`, `price_clock`, `no_clock`, `core_macro` (adds the 13 macro inputs: M2 growth, Fed balance
+sheet, fed funds level/direction/4-year percentile, 10-year nominal and real yields, the 2s10s curve and
+the dollar index, each lagged to its publication date), and `core_eth` / `cyclenorm_eth` which add the Ether inputs
 (ETH/BTC ratio vs its own year average, 90/365-day moves, drawdown from the ETH/BTC high, 4-year
 percentile, ETH/USD trend and volatility relative to BTC, ETH share of BTC market cap, ETH address
 growth). ETH history starts 2015-08, so those columns are empty for the earliest cycles.

@@ -46,6 +46,9 @@ FRED_SERIES = {
     "WALCL": ("Fed total assets (weekly)", 2, "M"),
     "DTWEXBGS": ("Broad US dollar index", 7, "M"),
     "DGS10": ("US 10-year Treasury yield", 1, "M"),
+    "DFF": ("Effective federal funds rate (daily)", 1, "M"),
+    "DFII10": ("US 10-year real yield (TIPS, 2003+)", 1, "M"),
+    "T10Y2Y": ("10-year minus 2-year Treasury spread", 1, "M"),
     "DEXSFUS": ("South African rand per US dollar", 7, "M"),
 }
 
