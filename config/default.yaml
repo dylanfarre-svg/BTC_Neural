@@ -61,6 +61,15 @@ calibration: oof       # how frozen thresholds are fitted: oof (inner leave-one-
 #   both     - the weaker of the two (must be extreme in absolute AND relative terms)
 strength_mode: trailing
 trailing_window: 1095
+# Thin out strength-10 clusters (see calibrate.decluster): none | cooldown | cap | plateau
+# Without this the models fire strength 10 for weeks during a parabolic advance, far below the
+# eventual top (68 days at a median 64% below the 2017 top). After a 10 fires, the next one needs
+# either 120 days to pass or a score 0.05 more extreme than the one that fired; suppressed days
+# show as 9. Walk-forward: worst-cycle score 0.511 +/- 0.012 vs 0.679 +/- 0.006 without (6 seeds).
+declustering:
+  mode: cooldown      # none | cooldown | cap | plateau
+  gap_days: 120
+  improve: 0.05
 
 # --- Evaluation ------------------------------------------------------------
 evaluation:

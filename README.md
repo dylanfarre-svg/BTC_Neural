@@ -31,7 +31,7 @@ Scheduling: `uv run btcn install-schedule` installs a launchd agent that runs `b
 | Features | ~87 causal, scale-free features: MA ratios, Pi Cycle, log-regression residual, daily/weekly/monthly RSI (the current bar is partial), MVRV-Z, NUPL, Puell, hash ribbons, halving clock, causal "confirmed" cycle tops/lows, macro (with publication lags), 4-year percentiles, and ETH/BTC + ETH/USD relative strength | `features/` |
 | Label | Hindsight position within the cycle leg, from +1 (cycle low) to −1 (cycle top), computed **as of each training cutoff** | `labels.py` |
 | Models | Rule composite (no training), ridge, LightGBM with monotone constraints, a small temporal-CNN neural net (8 seeds, Apple GPU; weekly sequence of 10 BTC series plus 3 ETH/BTC channels when the feature set includes Ether), ensembles | `models/` |
-| Strength | The score maps to −10..+10 by budget (strength 10 = 10 days per 1460). Modes: `frozen` thresholds from training, `trailing` causal 3-year rank of the model's own scores, `hybrid`, `both` | `calibrate.py` |
+| Strength | The score maps to −10..+10 by budget (strength 10 = 10 days per 1460). Modes: `frozen` thresholds from training, `trailing` causal 3-year rank of the model's own scores, `hybrid`, `both`. A **de-clustering** rule then thins strength-10 runs: after one fires, the next needs 120 days or a 0.05 more extreme score | `calibrate.py` |
 | Backtest | Halving epochs E1..E4. Each epoch is predicted by a model trained only on earlier epochs | `backtest/walkforward.py` |
 | Metrics | Distance of strength-10 signals from the true top/low (log), days from the extreme, wrong-side share, budget. **Selection = worst fold**, lower is better | `backtest/metrics.py` |
 | Simulation | Monthly DCA + reserve, buys on buy signals, trims on sell signals above a core floor (25%), South African CGT in rand (40% inclusion × marginal rate, R40k exclusion, FIFO/HIFO/average lots, loss carry-forward) | `backtest/simulator.py` |
@@ -74,6 +74,15 @@ Walk-forward mean over seeds, worst-cycle score (lower is better). Production `c
 | Macro incl. fed funds (`core_macro`) | 0.877 | worse |
 | Exchange flows + fees (`core_flow`) | 0.980 | worse |
 | Exchange flows + exhaustion (`core_tier1`) | 0.933 | worse |
+| *Label* changed to `window` (365d / 540d) | 2.240 | much worse — no strength-10 sells at all in E4 |
+| **De-clustering, cooldown 120d / 0.05** | **0.511 ± 0.012** (6 seeds) | **adopted** |
+| De-clustering, cooldown 60d / 0.05 | 0.526 ± 0.017 (6 seeds) | also good (rule is not knife-edge) |
+
+No *input* has ever beaten the original feature set; the one change that did was the de-clustering rule,
+which cut the 2017 fold's strength-10 sells from 68 (median 64% below the top) to 6 (median 47% below,
+16 days away). Its parameters were chosen by scanning the same test folds, so the true out-of-sample gain
+is likely smaller than 0.679 -> 0.511; the whole cooldown family (30-120 days, 0.02-0.10) beat the
+baseline, which is what makes it credible. The append-only live signal log is the unbiased test.
 
 Differences below ~0.05 are inside seed noise; three seeds is not enough to separate close candidates
 (a 3-seed run made `core_exhaust_ma4050` look like a winner at 0.661; six seeds reversed it).

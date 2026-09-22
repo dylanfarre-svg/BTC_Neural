@@ -82,18 +82,66 @@ def combine(frozen: pd.Series, trailing: pd.Series) -> pd.Series:
     return pd.Series(np.where(same, stronger, frozen), index=frozen.index).astype(int)
 
 
-def to_strength(scores_full: pd.Series, cal: Calibration, mode: str | None = None) -> pd.Series:
+def decluster(strength: pd.Series, score: pd.Series, mode: str = "none", gap_days: int = 60,
+              improve: float = 0.05, cap: int = 10, window: int = 365, flat_days: int = 30,
+              flat_eps: float = 0.0) -> pd.Series:
+    """Thin out top-level signals, causally (each day decided from that day and earlier only).
+
+    The models fire strength 10 for weeks during a parabolic run, far below the eventual top,
+    because each new day is the most extreme reading so far. These rules demote such days to 9.
+
+    - cooldown: after a 10 fires, no further 10 for `gap_days` unless the score is `improve`
+      more extreme than the score at the last one that fired.
+    - cap:      at most `cap` tens per trailing `window` days.
+    - plateau:  a 10 only once the score has stopped intensifying - it is no more than `flat_eps`
+      more extreme than it was `flat_days` ago (a top forms when conviction plateaus, whereas
+      mid-parabola it is still deepening).
+    """
+    if mode in ("none", None):
+        return strength
+    s = strength.copy()
+    sc = score.reindex(s.index)
+    fired: list[tuple[int, float]] = []          # (position, score) of tens that were kept
+    prev = sc.shift(flat_days)
+    for i, (d, v) in enumerate(s.items()):
+        if abs(int(v)) < 10:
+            continue
+        sign = 1 if v > 0 else -1
+        cur = sc.iloc[i]
+        keep = True
+        if mode == "cooldown":
+            same = [(j, q) for j, q in fired if np.sign(q) == sign]
+            if same:
+                j, q = same[-1]
+                if i - j < gap_days and (cur - q) * sign < improve:
+                    keep = False
+        elif mode == "cap":
+            recent = [j for j, q in fired if np.sign(q) == sign and i - j < window]
+            keep = len(recent) < cap
+        elif mode == "plateau":
+            p = prev.iloc[i]
+            keep = bool(np.isnan(p)) or (cur - p) * sign <= flat_eps
+        if keep:
+            fired.append((i, float(cur)))
+        else:
+            s.iloc[i] = sign * 9
+    return s
+
+
+def to_strength(scores_full: pd.Series, cal: Calibration, mode: str | None = None,
+                declustering: dict | None = None) -> pd.Series:
     """Strength for every row of `scores_full` (which should include history for trailing mode)."""
     cfg = load_config()
     mode = mode or cfg["strength_mode"]
+    dec = declustering if declustering is not None else cfg.get("declustering", {"mode": "none"})
     frozen = apply_calibration(scores_full, cal)
     if mode == "frozen":
-        return frozen
+        return decluster(frozen, scores_full, **dec)
     trailing = apply_trailing(scores_full, window=cfg["trailing_window"])
     if mode == "trailing":
-        return trailing
+        return decluster(trailing, scores_full, **dec)
     if mode == "both":
         same = np.sign(frozen) * np.sign(trailing) > 0
         weaker = np.where(np.abs(trailing) < np.abs(frozen), trailing, frozen)
-        return pd.Series(np.where(same, weaker, 0), index=frozen.index).astype(int)
-    return combine(frozen, trailing)
+        return decluster(pd.Series(np.where(same, weaker, 0), index=frozen.index).astype(int), scores_full, **dec)
+    return decluster(combine(frozen, trailing), scores_full, **dec)

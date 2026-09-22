@@ -46,8 +46,9 @@ def window_label(close: pd.Series, cutoff: pd.Timestamp, half_days: int = 365) -
     return y
 
 
-def make_label(close: pd.Series, extremes: list[Extreme], cutoff: pd.Timestamp) -> pd.Series:
-    cfg = load_config()["label"]
+def make_label(close: pd.Series, extremes: list[Extreme], cutoff: pd.Timestamp,
+               cfg: dict | None = None) -> pd.Series:
+    cfg = cfg or load_config()["label"]
     if cfg["kind"] == "window":
         return window_label(close, cutoff, cfg["window_half_days"])
     return cycle_label(close, extremes, cutoff)

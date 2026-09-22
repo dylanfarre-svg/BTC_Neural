@@ -101,7 +101,7 @@ def run_walkforward(model_type: str, feature_set: str, cfg: dict | None = None, 
     for name, start, end_ex in eps[1:]:
         cutoff = start - pd.Timedelta(days=1)
         end = min(end_ex - pd.Timedelta(days=1), close.index[-1])
-        y = make_label(close, ex, cutoff)
+        y = make_label(close, ex, cutoff, cfg.get("label"))
         if y.notna().sum() < load_config()["folds"]["min_train_days"] // 3:
             continue
         model, cal = fit_with_calibration(model_type, cfg, F, y, cutoff)
@@ -109,7 +109,7 @@ def run_walkforward(model_type: str, feature_set: str, cfg: dict | None = None, 
         score = full.loc[start:end]
         dca = simulate(close, score * 0, fx, start, end, dca_only=True)
         for mode in modes:
-            strength = to_strength(full, cal, mode).loc[start:end]
+            strength = to_strength(full, cal, mode, cfg.get("declustering")).loc[start:end]
             m = evaluate_period(close, score, strength, ex, start, end)
             sim = simulate(close, strength, fx, start, end)
             m["sim_btc_vs_dca"] = sim.summary["final_btc"] / dca.summary["final_btc"]
@@ -149,7 +149,7 @@ def _store(run_id, model_type, feature_set, cfg, selection_score, folds, predict
     p["date"] = p["date"].dt.strftime("%Y-%m-%d")
     p.insert(0, "run_id", run_id)
     db.save_run(run_id, model_type, feature_set, "experiment",
-                {"cfg": cfg, "label": load_config()["label"], "calibration": load_config()["calibration"],
+                {"cfg": cfg, "label": cfg.get("label", load_config()["label"]), "calibration": load_config()["calibration"],
                  "strength_mode": cfg["strength_mode"]},
                 selection_score, None)
     with db.connect() as con:

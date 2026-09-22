@@ -68,6 +68,7 @@ def train_production(source_run_id: str | None = None, role: str = "production",
     meta = {
         "source_run_id": source_run_id, "model_type": run.model_type, "feature_set": run.feature_set,
         "cfg": cfg, "strength_mode": cfg.get("strength_mode", run_cfg.get("strength_mode", load_config()["strength_mode"])),
+        "declustering": cfg.get("declustering", load_config().get("declustering", {"mode": "none"})),
         "calibration": cal.to_dict(), "trained_through": cutoff.strftime("%Y-%m-%d"),
         "labeled_days": int(y.notna().sum()),
     }
@@ -141,7 +142,8 @@ def signal_history(role: str, feats: pd.DataFrame | None = None) -> pd.DataFrame
         _, feats = dataset()
     F = feats[model.columns]
     score, spread = model.predict_with_spread(F)
-    strength = to_strength(score, Calibration.from_dict(meta["calibration"]), meta.get("strength_mode"))
+    strength = to_strength(score, Calibration.from_dict(meta["calibration"]), meta.get("strength_mode"),
+                           meta.get("declustering"))
     out = pd.DataFrame({"score": score, "strength": strength, "spread": spread})
     out.attrs.update(run_id=run_id, meta=meta)
     return out
