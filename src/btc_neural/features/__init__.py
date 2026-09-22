@@ -30,6 +30,8 @@ FEATURE_SETS: dict[str, list[str]] = {
     "cyclenorm": ["cyclenorm"],
     # production feature set plus Ether (ETH/BTC and ETH/USD); ETH history starts 2015-08
     "core_eth": ["price", "onchain", "clock", "eth"],
+    # production set plus explicit 20-week / 50-week moving-average ratios and structure
+    "core_ma": ["price", "onchain", "clock", "ma"],
     "cyclenorm_eth": ["cyclenorm", "eth"],
 }
 
@@ -47,6 +49,7 @@ SELL_MONOTONE = [
     "mayer", "p_200w", "p_2yma", "pi_cycle", "logreg_resid", "mvrv", "mvrv_z", "nupl", "puell",
     "rsi_m", "rsi_w", "mayer_pct4y", "mvrv_pct4y", "puell_pct4y", "rsi_m_pct4y", "p_200w_pct4y",
     "p_2yma_pct4y", "logreg_resid_pct4y", "mvrv_z_pct4y", "pi_cycle_pct4y",
+    "p_20w", "p_50w", "ma20w_vs_50w", "p_20w_pct4y", "ma20w_vs_50w_pct4y",
 ]
 
 # Components of the rule-based composite baseline (no training).
@@ -209,6 +212,27 @@ def log_regression_residual(c: pd.Series, refit: str = "MS") -> pd.Series:
     return pd.Series(out, index=c.index)
 
 
+def ma_features(d: pd.DataFrame) -> pd.DataFrame:
+    """Classic weekly moving averages as explicit ratios, plus MA structure (slope, 20W/50W gap,
+    time since the cross) which a single price/MA ratio cannot express."""
+    c = d["close"]
+    lc = np.log(c)
+    f = pd.DataFrame(index=d.index)
+    ma20w, ma50w = sma(c, 140, 70), sma(c, 350, 175)
+    f[_reg("p_20w", "ma")] = lc - np.log(ma20w)
+    f[_reg("p_50w", "ma")] = lc - np.log(ma50w)
+    f[_reg("ma20w_slope", "ma")] = np.log(ma20w / ma20w.shift(90))
+    f[_reg("ma50w_slope", "ma")] = np.log(ma50w / ma50w.shift(180))
+    gap = np.log(ma20w / ma50w)          # > 0 after a golden cross, < 0 after a death cross
+    f[_reg("ma20w_vs_50w", "ma")] = gap
+    crossed = np.sign(gap).diff().fillna(0) != 0
+    idx = pd.Series(np.where(crossed, np.arange(len(c)), np.nan), index=c.index).ffill()
+    f[_reg("weeks_since_ma_cross", "ma")] = (np.arange(len(c)) - idx) / EPOCH_DAYS
+    f[_reg("p_20w_pct4y", "ma")] = rolling_pct(f["p_20w"])
+    f[_reg("ma20w_vs_50w_pct4y", "ma")] = rolling_pct(gap)
+    return f
+
+
 def onchain_features(d: pd.DataFrame, s: pd.DataFrame) -> pd.DataFrame:
     f = pd.DataFrame(index=d.index)
     s = s.reindex(d.index).ffill(limit=5)
@@ -359,6 +383,7 @@ def build_features(daily: pd.DataFrame, series: pd.DataFrame, lags: dict[str, in
                    h4: pd.DataFrame | None = None) -> pd.DataFrame:
     parts = [
         price_features(daily),
+        ma_features(daily),
         onchain_features(daily, series),
         clock_features(daily),
         macro_features(daily, series, lags),

@@ -52,7 +52,8 @@ Scheduling: `uv run btcn install-schedule` installs a launchd agent that runs `b
 ## Feature sets
 
 `core` (price + on-chain + cycle clock), `cyclenorm` (amplitude-free only), `core_macro`, `core_calendar`,
-`core_intraday`, `price_clock`, `no_clock`, `core_macro` (adds the 13 macro inputs: M2 growth, Fed balance
+`core_intraday`, `price_clock`, `no_clock`, `core_ma` (adds explicit 20-week and 50-week MA ratios plus MA
+structure: slopes, the 20W/50W gap and time since the cross), `core_macro` (adds the 13 macro inputs: M2 growth, Fed balance
 sheet, fed funds level/direction/4-year percentile, 10-year nominal and real yields, the 2s10s curve and
 the dollar index, each lagged to its publication date), and `core_eth` / `cyclenorm_eth` which add the Ether inputs
 (ETH/BTC ratio vs its own year average, 90/365-day moves, drawdown from the ETH/BTC high, 4-year
