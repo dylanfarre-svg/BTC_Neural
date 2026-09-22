@@ -32,6 +32,16 @@ FEATURE_SETS: dict[str, list[str]] = {
     "core_eth": ["price", "onchain", "clock", "eth"],
     # production set plus explicit 20-week / 50-week moving-average ratios and structure
     "core_ma": ["price", "onchain", "clock", "ma"],
+    # exchange flows + fee pressure (behavioural on-chain)
+    "core_flow": ["price", "onchain", "clock", "flow"],
+    # parabola-exhaustion measures derived from price
+    "core_exhaust": ["price", "onchain", "clock", "exhaust"],
+    # both of the above together
+    "core_tier1": ["price", "onchain", "clock", "flow", "exhaust"],
+    # production set plus the 40-week and 50-week moving-average ratios only
+    "core_ma4050": ["price", "onchain", "clock", "+p_40w", "+p_50w", "+p_40w_pct4y", "+p_50w_pct4y"],
+    "core_exhaust_ma4050": ["price", "onchain", "clock", "exhaust",
+                            "+p_40w", "+p_50w", "+p_40w_pct4y", "+p_50w_pct4y"],
     "cyclenorm_eth": ["cyclenorm", "eth"],
 }
 
@@ -46,10 +56,13 @@ CYCLENORM = [
 # Features whose higher values mean "more overheated" (push toward SELL). Used for
 # monotone constraints in LightGBM and for the rule-based composite.
 SELL_MONOTONE = [
+    "ex_supply_chg_90", "ex_flow_ratio", "ex_inflow_vs_mcap", "ex_inflow_pct4y", "fee_pct4y",
+    "accel_90_365", "accel_30_90", "ret_30_z", "ret_30_pct4y", "rsi_m_hot_365",
     "mayer", "p_200w", "p_2yma", "pi_cycle", "logreg_resid", "mvrv", "mvrv_z", "nupl", "puell",
     "rsi_m", "rsi_w", "mayer_pct4y", "mvrv_pct4y", "puell_pct4y", "rsi_m_pct4y", "p_200w_pct4y",
     "p_2yma_pct4y", "logreg_resid_pct4y", "mvrv_z_pct4y", "pi_cycle_pct4y",
-    "p_20w", "p_50w", "ma20w_vs_50w", "p_20w_pct4y", "ma20w_vs_50w_pct4y",
+    "p_20w", "p_40w", "p_50w", "ma20w_vs_50w", "p_20w_pct4y", "p_40w_pct4y", "p_50w_pct4y",
+    "ma20w_vs_50w_pct4y",
 ]
 
 # Components of the rule-based composite baseline (no training).
@@ -218,9 +231,12 @@ def ma_features(d: pd.DataFrame) -> pd.DataFrame:
     c = d["close"]
     lc = np.log(c)
     f = pd.DataFrame(index=d.index)
-    ma20w, ma50w = sma(c, 140, 70), sma(c, 350, 175)
+    ma20w, ma40w, ma50w = sma(c, 140, 70), sma(c, 280, 140), sma(c, 350, 175)
     f[_reg("p_20w", "ma")] = lc - np.log(ma20w)
+    f[_reg("p_40w", "ma")] = lc - np.log(ma40w)
     f[_reg("p_50w", "ma")] = lc - np.log(ma50w)
+    f[_reg("p_40w_pct4y", "ma")] = rolling_pct(f["p_40w"])
+    f[_reg("p_50w_pct4y", "ma")] = rolling_pct(f["p_50w"])
     f[_reg("ma20w_slope", "ma")] = np.log(ma20w / ma20w.shift(90))
     f[_reg("ma50w_slope", "ma")] = np.log(ma50w / ma50w.shift(180))
     gap = np.log(ma20w / ma50w)          # > 0 after a golden cross, < 0 after a death cross
@@ -254,6 +270,62 @@ def onchain_features(d: pd.DataFrame, s: pd.DataFrame) -> pd.DataFrame:
     for base in ("mvrv", "puell", "mvrv_z"):
         f[_reg(f"{base}_pctx", "onchain")] = expanding_pct(f[base])
         f[_reg(f"{base}_pct4y", "onchain")] = rolling_pct(f[base])
+    return f
+
+
+def flow_features(d: pd.DataFrame, s: pd.DataFrame) -> pd.DataFrame:
+    """Behavioural on-chain data: coins moving to/from exchanges, fee pressure, address base.
+
+    Valuation metrics (MVRV, Puell) say whether price is stretched; these say what holders are
+    actually doing — deposits spike when people intend to sell, fees spike when the crowd arrives.
+    """
+    f = pd.DataFrame(index=d.index)
+    s = s.reindex(d.index).ffill(limit=5)
+    if "SplyExNtv" in s and "SplyCur" in s:
+        share = np.log(s["SplyExNtv"] / s["SplyCur"])
+        f[_reg("ex_supply_share", "flow")] = share
+        f[_reg("ex_supply_chg_90", "flow")] = share - share.shift(90)
+        f[_reg("ex_supply_chg_365", "flow")] = share - share.shift(365)
+        f[_reg("ex_supply_pct4y", "flow")] = rolling_pct(share)
+    if "FlowInExUSD" in s and "FlowOutExUSD" in s:
+        inflow, outflow = sma(s["FlowInExUSD"], 30, 15), sma(s["FlowOutExUSD"], 30, 15)
+        f[_reg("ex_flow_ratio", "flow")] = np.log(inflow / outflow)
+        if "CapMrktCurUSD" in s:
+            rel = np.log(inflow / s["CapMrktCurUSD"])
+            f[_reg("ex_inflow_vs_mcap", "flow")] = rel
+            f[_reg("ex_inflow_pct4y", "flow")] = rolling_pct(rel)
+        f[_reg("ex_inflow_spike", "flow")] = np.log(sma(s["FlowInExUSD"], 7, 4) / sma(s["FlowInExUSD"], 365, 180))
+    if "FeeTotNtv" in s:
+        fee_usd = s["FeeTotNtv"] * d["close"]
+        f[_reg("fee_vs_issuance", "flow")] = np.log(sma(fee_usd, 30, 15) / sma(s["IssTotUSD"], 30, 15))
+        f[_reg("fee_per_tx", "flow")] = np.log(sma(s["FeeTotNtv"], 30, 15) / sma(s["TxCnt"], 30, 15))
+        f[_reg("fee_pct4y", "flow")] = rolling_pct(f["fee_vs_issuance"])
+    if "AdrBalCnt" in s:
+        a = sma(s["AdrBalCnt"], 30, 15)
+        f[_reg("addr_base_growth", "flow")] = np.log(a / a.shift(365))
+    return f
+
+
+def exhaustion_features(d: pd.DataFrame) -> pd.DataFrame:
+    """Parabola-exhaustion measures: is the advance accelerating into a blow-off, or just steep?
+
+    Trend-following inputs (MAs, Mayer) stay bullish through an entire parabola; these are meant to
+    separate mid-run from terminal.
+    """
+    c = d["close"]
+    lc = np.log(c)
+    f = pd.DataFrame(index=d.index)
+    f[_reg("accel_90_365", "exhaust")] = (lc - lc.shift(90)) / 90 - (lc - lc.shift(365)) / 365
+    f[_reg("accel_30_90", "exhaust")] = (lc - lc.shift(30)) / 30 - (lc - lc.shift(90)) / 90
+    vol90 = lc.diff().rolling(90, min_periods=45).std()
+    f[_reg("ret_30_z", "exhaust")] = (lc - lc.shift(30)) / (vol90 * np.sqrt(30))
+    f[_reg("ret_30_pct4y", "exhaust")] = rolling_pct(lc - lc.shift(30))
+    f[_reg("dd_90d_high", "exhaust")] = lc - np.log(c.rolling(90, min_periods=45).max())
+    above = (c > sma(c, 140, 70)).astype(float)
+    streak = above.groupby((above != above.shift()).cumsum()).cumsum() * above
+    f[_reg("days_above_20w", "exhaust")] = streak / EPOCH_DAYS
+    rsi_m = htf_rsi(c, "M")
+    f[_reg("rsi_m_hot_365", "exhaust")] = (rsi_m > 70).rolling(365, min_periods=180).mean()
     return f
 
 
@@ -384,6 +456,8 @@ def build_features(daily: pd.DataFrame, series: pd.DataFrame, lags: dict[str, in
     parts = [
         price_features(daily),
         ma_features(daily),
+        flow_features(daily, series),
+        exhaustion_features(daily),
         onchain_features(daily, series),
         clock_features(daily),
         macro_features(daily, series, lags),
@@ -397,11 +471,16 @@ def build_features(daily: pd.DataFrame, series: pd.DataFrame, lags: dict[str, in
 
 
 def columns_for(feature_set: str, available: list[str]) -> list[str]:
-    groups = FEATURE_SETS[feature_set]
+    """A set is a list of group names, plus optional '+column' entries naming single features."""
+    spec = FEATURE_SETS[feature_set]
+    groups = [g for g in spec if not g.startswith("+")]
+    singles = [g[1:] for g in spec if g.startswith("+")]
     if "cyclenorm" in groups:
         extra = [c for c in available if FEATURE_GROUPS.get(c) in groups and c not in CYCLENORM]
-        return [c for c in CYCLENORM if c in available] + extra
-    return [c for c in available if FEATURE_GROUPS.get(c) in groups]
+        cols = [c for c in CYCLENORM if c in available] + extra
+    else:
+        cols = [c for c in available if FEATURE_GROUPS.get(c) in groups]
+    return cols + [c for c in singles if c in available and c not in cols]
 
 
 def load_all() -> tuple[pd.DataFrame, pd.DataFrame]:

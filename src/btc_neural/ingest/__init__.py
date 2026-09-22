@@ -31,6 +31,11 @@ COINMETRICS_METRICS = {
     "SplyCur": ("Current supply", "A"),
     "TxCnt": ("Transaction count", "A"),
     "IssTotUSD": ("Miner issuance value, USD (for Puell multiple)", "A"),
+    "SplyExNtv": ("Supply held on exchanges, BTC (2011-04+)", "A"),
+    "FlowInExUSD": ("Exchange deposits, USD (2011-04+)", "A"),
+    "FlowOutExUSD": ("Exchange withdrawals, USD (2011-04+)", "A"),
+    "FeeTotNtv": ("Total transaction fees, BTC", "A"),
+    "AdrBalCnt": ("Addresses holding a balance", "A"),
 }
 
 # Ether, as a second market: ETH/USD and (derived) ETH/BTC. History starts 2015-08.
@@ -141,10 +146,12 @@ def ingest_coinmetrics() -> int:
         _ingest_cm_asset("eth", COINMETRICS_ETH_METRICS, prefix="ETH_")
 
 
-def _ingest_cm_asset(asset: str, metrics: dict, prefix: str) -> int:
+def _ingest_cm_asset(asset: str, metrics: dict, prefix: str, start: str | None = None) -> int:
+    """Incremental by default; pass `start` to backfill (e.g. after adding a new metric)."""
     source = f"coinmetrics_{asset}"
-    last = db.query("SELECT MAX(date) AS d FROM series WHERE source=?", (source,))["d"].iloc[0]
-    start = (pd.Timestamp(last) - pd.Timedelta(days=10)).strftime("%Y-%m-%d") if last else "2010-01-01"
+    if start is None:
+        last = db.query("SELECT MAX(date) AS d FROM series WHERE source=?", (source,))["d"].iloc[0]
+        start = (pd.Timestamp(last) - pd.Timedelta(days=10)).strftime("%Y-%m-%d") if last else "2010-01-01"
     url = "https://community-api.coinmetrics.io/v4/timeseries/asset-metrics"
     params = {"assets": asset, "metrics": ",".join(metrics), "frequency": "1d",
               "start_time": start, "page_size": 10000, "paging_from": "start"}

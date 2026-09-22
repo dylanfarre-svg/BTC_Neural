@@ -27,7 +27,7 @@ Scheduling: `uv run btcn install-schedule` installs a launchd agent that runs `b
 
 | Stage | What happens | Code |
 |---|---|---|
-| Data | Bitstamp 1d/4h candles, Coin Metrics BTC price + on-chain (MVRV, hash rate, issuance, addresses) and ETH price/market cap/addresses (2015-08+), FRED macro (M2, Fed balance sheet, fed funds rate, 10-year nominal/real yields, 2s10s curve, dollar index, USD/ZAR), Fear & Greed | `ingest/` |
+| Data | Bitstamp 1d/4h candles, Coin Metrics BTC price + on-chain (MVRV, hash rate, issuance, addresses, exchange supply/flows, fees) and ETH price/market cap/addresses (2015-08+), FRED macro (M2, Fed balance sheet, fed funds rate, 10-year nominal/real yields, 2s10s curve, dollar index, USD/ZAR), Fear & Greed | `ingest/` |
 | Features | ~87 causal, scale-free features: MA ratios, Pi Cycle, log-regression residual, daily/weekly/monthly RSI (the current bar is partial), MVRV-Z, NUPL, Puell, hash ribbons, halving clock, causal "confirmed" cycle tops/lows, macro (with publication lags), 4-year percentiles, and ETH/BTC + ETH/USD relative strength | `features/` |
 | Label | Hindsight position within the cycle leg, from +1 (cycle low) to −1 (cycle top), computed **as of each training cutoff** | `labels.py` |
 | Models | Rule composite (no training), ridge, LightGBM with monotone constraints, a small temporal-CNN neural net (8 seeds, Apple GPU; weekly sequence of 10 BTC series plus 3 ETH/BTC channels when the feature set includes Ether), ensembles | `models/` |
@@ -59,6 +59,24 @@ the dollar index, each lagged to its publication date), and `core_eth` / `cyclen
 (ETH/BTC ratio vs its own year average, 90/365-day moves, drawdown from the ETH/BTC high, 4-year
 percentile, ETH/USD trend and volatility relative to BTC, ETH share of BTC market cap, ETH address
 growth). ETH history starts 2015-08, so those columns are empty for the earliest cycles.
+
+## Experiment log (what has and hasn't helped)
+
+Walk-forward mean over seeds, worst-cycle score (lower is better). Production `core` = **0.679 ± 0.006** (6 seeds).
+
+| Added to `core` | Mean | Verdict |
+|---|---|---|
+| 20W/50W MA ratios + MA structure (`core_ma`) | 0.670 | tie |
+| Parabola-exhaustion measures (`core_exhaust`) | 0.680 | tie |
+| Exhaustion + 40W/50W (`core_exhaust_ma4050`) | 0.689 ± 0.014 (6 seeds) | tie |
+| Ether, ETH/BTC also in the NN sequence (`core_eth`) | 0.691 | tie / slightly worse |
+| 40W/50W alone (`core_ma4050`) | 0.813 | worse |
+| Macro incl. fed funds (`core_macro`) | 0.877 | worse |
+| Exchange flows + fees (`core_flow`) | 0.980 | worse |
+| Exchange flows + exhaustion (`core_tier1`) | 0.933 | worse |
+
+Differences below ~0.05 are inside seed noise; three seeds is not enough to separate close candidates
+(a 3-seed run made `core_exhaust_ma4050` look like a winner at 0.661; six seeds reversed it).
 
 ## Saved models
 
