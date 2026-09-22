@@ -58,6 +58,11 @@ def train_production(source_run_id: str | None = None, role: str = "production",
     daily, feats = dataset()
     close = daily["close"]
     cutoff = close.index[-1]
+    # Optional in-sample cutoff: nothing after this date is used for fitting or calibration, so the
+    # period since then is a genuine holdout that the live signal log records day by day.
+    tc = load_config().get("training_cutoff")
+    if tc:
+        cutoff = min(cutoff, pd.Timestamp(tc))
     F = feats[columns_for(run.feature_set, list(feats.columns))]
     y = make_label(close, cycle_extremes(close), cutoff)
     model, cal = fit_with_calibration(run.model_type, cfg, F, y, cutoff)
@@ -143,7 +148,8 @@ def signal_history(role: str, feats: pd.DataFrame | None = None) -> pd.DataFrame
     F = feats[model.columns]
     score, spread = model.predict_with_spread(F)
     strength = to_strength(score, Calibration.from_dict(meta["calibration"]), meta.get("strength_mode"),
-                           meta.get("declustering"))
+                           meta.get("declustering"), meta.get("cfg", {}).get("trailing_window"),
+                           meta.get("cfg", {}).get("signal_budget"))
     out = pd.DataFrame({"score": score, "strength": strength, "spread": spread})
     out.attrs.update(run_id=run_id, meta=meta)
     return out

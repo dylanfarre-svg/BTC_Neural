@@ -117,6 +117,12 @@ models:
     colsample_bytree: 0.7
     reg_lambda: 5.0
 
+# In-sample cutoff for the saved (production / candidate) models: labels, model fitting and
+# calibration thresholds use nothing after this date, so everything later is a genuine holdout
+# recorded day by day in the append-only live_signals table. Set to null to use all data.
+# (Walk-forward folds are unaffected: each fold already stops at the start of its test epoch.)
+training_cutoff: "2026-01-01"
+
 # --- Live / notifications ----------------------------------------------------
 live:
   retrain_after_days: 30

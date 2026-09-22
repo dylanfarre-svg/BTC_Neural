@@ -71,7 +71,7 @@ def fit_with_calibration(model_type: str, cfg: dict, F: pd.DataFrame, y: pd.Seri
         scores = pd.concat(parts) if parts else model.predict(F.loc[:cutoff]).loc[rows]
     else:
         scores = model.predict(F.loc[:cutoff]).loc[rows]
-    return model, fit_calibration(scores)
+    return model, fit_calibration(scores, cfg.get("signal_budget"))
 
 
 @dataclass
@@ -109,7 +109,8 @@ def run_walkforward(model_type: str, feature_set: str, cfg: dict | None = None, 
         score = full.loc[start:end]
         dca = simulate(close, score * 0, fx, start, end, dca_only=True)
         for mode in modes:
-            strength = to_strength(full, cal, mode, cfg.get("declustering")).loc[start:end]
+            strength = to_strength(full, cal, mode, cfg.get("declustering"),
+                                   cfg.get("trailing_window"), cfg.get("signal_budget")).loc[start:end]
             m = evaluate_period(close, score, strength, ex, start, end)
             sim = simulate(close, strength, fx, start, end)
             m["sim_btc_vs_dca"] = sim.summary["final_btc"] / dca.summary["final_btc"]

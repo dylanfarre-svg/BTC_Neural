@@ -129,15 +129,18 @@ def decluster(strength: pd.Series, score: pd.Series, mode: str = "none", gap_day
 
 
 def to_strength(scores_full: pd.Series, cal: Calibration, mode: str | None = None,
-                declustering: dict | None = None) -> pd.Series:
+                declustering: dict | None = None, trailing_window: int | None = None,
+                budget: dict[int, int] | None = None) -> pd.Series:
     """Strength for every row of `scores_full` (which should include history for trailing mode)."""
     cfg = load_config()
     mode = mode or cfg["strength_mode"]
     dec = declustering if declustering is not None else cfg.get("declustering", {"mode": "none"})
+    window = trailing_window or cfg["trailing_window"]
+    budget = budget or {int(k): v for k, v in cfg["signal_budget"].items()}
     frozen = apply_calibration(scores_full, cal)
     if mode == "frozen":
         return decluster(frozen, scores_full, **dec)
-    trailing = apply_trailing(scores_full, window=cfg["trailing_window"])
+    trailing = apply_trailing(scores_full, budget, window=window)
     if mode == "trailing":
         return decluster(trailing, scores_full, **dec)
     if mode == "both":

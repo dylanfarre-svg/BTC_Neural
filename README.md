@@ -13,7 +13,7 @@ uv sync                       # install
 uv run btcn ingest            # download data into data/btc_neural.db (SQLite)
 uv run btcn backtest          # walk-forward grid: models x feature sets x strength modes
 uv run btcn leaderboard       # results, best first
-uv run btcn train-production  # retrain the winner (and the best NN reference) on all data
+uv run btcn train-production  # retrain the winner, the NN reference and one model per type
 uv run btcn daily             # ingest -> predict -> log -> notify
 uv run btcn app               # dashboard at http://localhost:8501
 ```
@@ -49,16 +49,32 @@ Scheduling: `uv run btcn install-schedule` installs a launchd agent that runs `b
 | Weekly digest | Sundays |
 | Data problem | Ingest failure or stale data (a silent failure could hide a strength-10 day) |
 
+## In-sample cutoff (holdout)
+
+`training_cutoff` in `config/default.yaml` (currently **2026-01-01**) is the last date the saved models may
+learn from. Labels, model fitting and calibration thresholds all stop there, so everything after it is a
+genuine holdout that the append-only `live_signals` table records day by day. Set it to `null` to train on
+everything. It does not affect walk-forward folds, which already stop at the start of each test epoch.
+
+Raise it once you want the models to learn from the recent past — for example after the current cycle's low
+is confirmed and added to `extremes` — then rerun `btcn train-production`.
+
 ## Feature sets
 
-`core` (price + on-chain + cycle clock), `cyclenorm` (amplitude-free only), `core_macro`, `core_calendar`,
-`core_intraday`, `price_clock`, `no_clock`, `core_ma` (adds explicit 20-week and 50-week MA ratios plus MA
-structure: slopes, the 20W/50W gap and time since the cross), `core_macro` (adds the 13 macro inputs: M2 growth, Fed balance
-sheet, fed funds level/direction/4-year percentile, 10-year nominal and real yields, the 2s10s curve and
-the dollar index, each lagged to its publication date), and `core_eth` / `cyclenorm_eth` which add the Ether inputs
-(ETH/BTC ratio vs its own year average, 90/365-day moves, drawdown from the ETH/BTC high, 4-year
-percentile, ETH/USD trend and volatility relative to BTC, ETH share of BTC market cap, ETH address
-growth). ETH history starts 2015-08, so those columns are empty for the earliest cycles.
+A set is a list of feature groups, optionally plus single columns named as `+column`.
+
+| Set | Contents |
+|---|---|
+| `core` | price/technical + on-chain + cycle clock — **the production set** |
+| `cyclenorm` | amplitude-free only (4-year percentiles, oscillators, clocks) |
+| `core_ma` | + 20W/50W ratios and MA structure (slopes, 20W-50W gap, weeks since cross) |
+| `core_ma4050` | + price/40W and price/50W ratios only |
+| `core_exhaust` | + parabola-exhaustion measures (acceleration, 30-day move in sigmas, days above the 20W MA, time monthly RSI spends above 70) |
+| `core_flow` | + exchange supply/flows, fee pressure, address base |
+| `core_tier1` | + flow and exhaustion together |
+| `core_macro` | + 13 macro inputs (M2, Fed balance sheet, fed funds level/direction/percentile, 10-year nominal and real yields, 2s10s curve, dollar index), each lagged to its publication date |
+| `core_eth` / `cyclenorm_eth` | + Ether: ETH/BTC vs its year average, 90/365-day moves, drawdown from the ETH/BTC high, 4-year percentile, ETH/USD trend, ETH volatility vs BTC, ETH share of BTC market cap, ETH address growth (2015-08+) |
+| `core_calendar`, `core_intraday`, `price_clock`, `no_clock` | ablations |
 
 ## Experiment log (what has and hasn't helped)
 
@@ -77,8 +93,22 @@ Walk-forward mean over seeds, worst-cycle score (lower is better). Production `c
 | *Label* changed to `window` (365d / 540d) | 2.240 | much worse — no strength-10 sells at all in E4 |
 | **De-clustering, cooldown 120d / 0.05** | **0.511 ± 0.012** (6 seeds) | **adopted** |
 | De-clustering, cooldown 60d / 0.05 | 0.526 ± 0.017 (6 seeds) | also good (rule is not knife-edge) |
+| Trailing window 730 / 900 / 1000 / **1095** / 1200 / 1300 / 1460 days | 1.894 / 1.489 / 0.586 / **0.495** / 1.393 / 2.240 / 2.240 | current value already best |
+| Signal budget x0.5 (5 days/cycle) / x1 / x2 (20) | 0.661 / **0.495** / 0.537 | current value already best |
 
-No *input* has ever beaten the original feature set; the one change that did was the de-clustering rule,
+### The trailing window is the fragile part
+
+Strength comes from ranking today's score against the model's own scores over the trailing window, and only
+~1000-1100 days works. Too long and the window still contains the **previous same-side extreme**, whose
+score today can never beat, so nothing fires at all (1300+ scores 2.240 = no strength-10 signals). Too short
+and the window holds only the recent regime, so signals fire early and often (730 scores 1.89). 1095 works
+because it reaches past the last cycle low but stops short of the last top — which quietly assumes the
+4-year rhythm holds. If cycles lengthen, this breaks. The better design (not built yet) is an adaptive
+window measured from the **last causally confirmed opposite extreme**, which `features.confirmed_extremes`
+already computes.
+
+No *input* has ever beaten the original feature set, and neither did re-tuning the calibration; the one
+change that did was the de-clustering rule,
 which cut the 2017 fold's strength-10 sells from 68 (median 64% below the top) to 6 (median 47% below,
 16 days away). Its parameters were chosen by scanning the same test folds, so the true out-of-sample gain
 is likely smaller than 0.679 -> 0.511; the whole cooldown family (30-120 days, 0.02-0.10) beat the
@@ -90,16 +120,33 @@ Differences below ~0.05 are inside seed noise; three seeds is not enough to sepa
 ## Saved models
 
 Every walk-forward run keeps its out-of-sample predictions in the `predictions` table, and
-`btcn train-production` saves one trained model per type (`candidate_<type>` roles), so each model's
-signal and forecast stay available. The Home chart can display any of them.
+`btcn train-production` saves the winner (`production`), an NN reference, one model per model type
+(`candidate_<type>`) and one per experiment worth keeping (`candidate_nn_eth`, `candidate_nn_macro`,
+`candidate_nn_ma`, `candidate_nn_exhaust`, …). Each stores its own calibration, de-clustering rule and
+cutoff in `meta.json`, so a live signal always matches the backtest that produced it. The Home chart can
+display any of them, and each also produces its own next-extreme forecast.
+
+## Dashboard
+
+`uv run btcn app` → http://localhost:8501. Restart it after code changes; Streamlit only reloads page files,
+not imported modules.
+
+| Page | What it shows |
+|---|---|
+| Home | Today's signal and confidence, what drives it, price chart with signals and a strength panel, next-extreme forecasts (pick which models to display; one is shaded as a Gaussian, the rest are markers with 1σ error bars) |
+| Backtest | Out-of-sample signals per test epoch, signal-quality metrics per cycle, tax-aware simulation vs plain DCA |
+| Leaderboard | Every run ranked by worst-cycle score, heat-shaded |
+| Features | Any feature against log price, with cycle extremes marked |
+| Train | Run a walk-forward experiment and promote a run to production |
+| Data & alerts | Data freshness, ingestion log, live signal log, notification log and a test button |
+
+Every price chart has a **Show halvings** toggle and keeps the date tooltip alive past the end of the data.
 
 ## Configuration
 
-Every price chart in the app has a **Show halvings** toggle (halvings are scheduled, so they are
-context rather than hindsight); the estimated next halving is drawn dotted.
-
-`config/default.yaml` holds everything: cycle extremes (used only for labels and evaluation), signal budget,
-strength mode, simulation and tax settings, model hyperparameters and alert thresholds. Put overrides in
+`config/default.yaml` holds everything: cycle extremes (used only for labels and evaluation), `training_cutoff`, the signal
+budget, strength mode, de-clustering rule, trailing-window length, simulation and South African tax
+settings, model hyperparameters, forecast settings and alert thresholds. Put overrides in
 `config/local.yaml`.
 
 **When the current cycle's low is confirmed**, add it to `extremes` in the config. Then rerun
@@ -113,6 +160,13 @@ uv run pytest
 
 `tests/test_no_lookahead.py` rebuilds all features on data truncated at six dates and asserts that they
 match the full-history values exactly. That makes the backtest honest.
+
+## Method notes
+- **Judge a change on 6 seeds, not 3.** The neural net's seed spread (~0.03) is as large as most effects
+  being measured; a 3-seed run once made a tied configuration look like a winner.
+- **Promote only on the worst fold and the seed mean together**, decided before looking.
+- Anything tuned by scanning the test folds (the de-clustering parameters) is optimistic by construction.
+  Treat the live log as the only unbiased evidence.
 
 ## Known limitations
 - Only about 4 cycles of history: every result is a handful of independent observations.
