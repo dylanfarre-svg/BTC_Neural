@@ -3,6 +3,7 @@
 import streamlit as st
 
 from btc_neural import db
+from btc_neural.app.common import trained_on
 from btc_neural.backtest.walkforward import leaderboard
 
 st.set_page_config(page_title="Leaderboard · BTC_Neural", page_icon="₿", layout="wide")
@@ -26,9 +27,9 @@ prod = db.query("SELECT role, json_extract(config_json,'$.source_run_id') AS src
 tags = {}
 for r in prod.drop_duplicates("role").itertuples():
     tags[r.src] = r.role
-v = v.assign(role=v.run_id.map(tags).fillna(""))
-cols = ["role", "model_type", "feature_set", "mode", "selection_score"] + [c for c in ["E1", "E2", "E3", "E4"] if c in v]
-score_cols = cols[4:]
+v = v.assign(role=v.run_id.map(tags).fillna(""), trained=v.created_at.map(trained_on))
+cols = ["role", "model_type", "feature_set", "mode", "trained", "selection_score"] + [c for c in ["E1", "E2", "E3", "E4"] if c in v]
+score_cols = [c for c in cols if c not in ("role", "model_type", "feature_set", "mode", "trained")]
 # Heatmap on one shared scale across all score cells: darker blue = better (lower score).
 RAMP = ["#104281", "#184f95", "#1c5cab", "#256abf", "#2a78d6", "#3987e5", "#5598e7", "#6da7ec", "#86b6ef", "#9ec5f4", "#b7d3f6", "#cde2fb"]
 LO, HI = 0.0, 2.5

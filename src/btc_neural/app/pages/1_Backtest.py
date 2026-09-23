@@ -7,7 +7,7 @@ import plotly.graph_objects as go
 import streamlit as st
 
 from btc_neural import db
-from btc_neural.app.common import BUY_10, PRICE, SELL_10, add_hover_spine, load_dataset, signal_figure
+from btc_neural.app.common import BUY_10, PRICE, SELL_10, add_hover_spine, load_dataset, signal_figure, trained_on
 from btc_neural.backtest.simulator import simulate
 from btc_neural.backtest.walkforward import leaderboard, usdzar
 from btc_neural.config import load_config
@@ -28,7 +28,8 @@ if lb.empty:
 prod_src = db.query("SELECT json_extract(config_json,'$.source_run_id') AS s FROM runs WHERE role='production' "
                     "ORDER BY created_at DESC LIMIT 1")
 default_run = prod_src.s.iloc[0] if len(prod_src) and prod_src.s.iloc[0] in set(lb.run_id) else lb.run_id.iloc[0]
-labels = {r.run_id: f"{r.model_type} / {r.feature_set} / {r.mode}  —  score {r.selection_score:.3f}" for r in lb.itertuples()}
+labels = {r.run_id: f"{r.model_type} / {r.feature_set} / {r.mode}  —  score {r.selection_score:.3f}"
+                    f"  —  trained {trained_on(r.created_at)}" for r in lb.itertuples()}
 run_id = st.selectbox("Run (best first; lower selection score is better)", list(labels), index=list(labels).index(default_run),
                       format_func=labels.get)
 

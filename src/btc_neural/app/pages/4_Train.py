@@ -6,7 +6,7 @@ import io
 import streamlit as st
 
 from btc_neural import pipeline
-from btc_neural.app.common import clear_caches
+from btc_neural.app.common import clear_caches, trained_on
 from btc_neural.backtest.walkforward import leaderboard, run_walkforward
 from btc_neural.features import FEATURE_SETS
 from btc_neural.models import MODEL_TYPES
@@ -41,7 +41,8 @@ best_nn = pipeline.best_run(nn_only=True)
 st.write(f"Best overall: **{best.model_type} / {best.feature_set} / {best['mode']}** (score {best.selection_score:.3f})")
 if best_nn is not None:
     st.write(f"Best neural net: **{best_nn.model_type} / {best_nn.feature_set} / {best_nn['mode']}** (score {best_nn.selection_score:.3f})")
-labels = {r.run_id: f"{r.model_type} / {r.feature_set} / {r.mode} — {r.selection_score:.3f}" for r in lb.itertuples()}
+labels = {r.run_id: f"{r.model_type} / {r.feature_set} / {r.mode} — {r.selection_score:.3f}"
+                    f" — trained {trained_on(r.created_at)}" for r in lb.itertuples()}
 choice = st.selectbox("Run to promote as production", list(labels), format_func=labels.get)
 c1, c2 = st.columns(2)
 if c1.button("Retrain on all data → production", type="primary"):

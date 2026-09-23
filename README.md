@@ -336,14 +336,15 @@ not imported modules.
 
 | Page | What it shows |
 |---|---|
-| Home | Today's signal and confidence, what drives it, price chart with signals and a strength panel, next-extreme forecasts (pick which models to display; one is shaded as a Gaussian, the rest are markers with 1σ error bars) |
+| Home | Today's signal and confidence (each model labelled with the date it was last trained), what drives it, price chart with signals and a strength panel, next-extreme forecasts (pick which models to display; one is shaded as a Gaussian, the rest are markers with 1σ error bars) |
 | Backtest | Out-of-sample signals per test epoch, signal-quality metrics per cycle, tax-aware simulation vs plain DCA |
-| Leaderboard | Every run ranked by worst-cycle score, heat-shaded |
+| Leaderboard | Every run ranked by worst-cycle score, heat-shaded, with a `trained` column |
 | Features | Any feature against log price, with cycle extremes marked |
 | Train | Run a walk-forward experiment and promote a run to production |
 | Data & alerts | Data freshness, ingestion log, live signal log, notification log and a test button |
 
-Every price chart has a **Show halvings** toggle and keeps the date tooltip alive past the end of the data.
+Every model selector shows when that model was last trained (`trained 2026-09-22`); the data it was allowed
+to learn from is capped separately by `training_cutoff`. Every price chart has a **Show halvings** toggle and keeps the date tooltip alive past the end of the data.
 
 ## Configuration
 

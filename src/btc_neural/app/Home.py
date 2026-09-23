@@ -8,7 +8,8 @@ import streamlit as st
 
 from btc_neural import db, pipeline
 from btc_neural.app.common import (SOURCE_COLORS, add_forecast_marker, add_forecast_overlay, add_hover_spine,
-                                   drivers_figure, fmt_strength, gauge_html, load_dataset, signal_figure)
+                                   drivers_figure, fmt_strength, gauge_html, load_dataset, signal_figure,
+                                   trained_on)
 from btc_neural.forecast import forecast_next, hindcasts, model_forecast
 
 st.set_page_config(page_title="BTC_Neural", page_icon="₿", layout="wide")
@@ -43,13 +44,18 @@ if prod is None:
     st.stop()
 
 meta = prod_attrs["meta"]
+roles = pipeline.all_roles().set_index("role")
+prod_trained = trained_on(roles.created_at.get("production"))
+ref_trained = trained_on(roles.created_at.get("reference_nn"))
 c1, c2, c3, c4 = st.columns([1.3, 1.3, 1, 1])
 with c1:
-    st.markdown(gauge_html(int(prod["strength"].iloc[-1]), f"Production · {meta['model_type']}/{meta['feature_set']}"),
+    st.markdown(gauge_html(int(prod["strength"].iloc[-1]),
+                           f"Production · {meta['model_type']}/{meta['feature_set']} · trained {prod_trained}"),
                 unsafe_allow_html=True)
 with c2:
     if ref is not None:
-        st.markdown(gauge_html(int(ref["strength"].iloc[-1]), "Neural-net reference"), unsafe_allow_html=True)
+        st.markdown(gauge_html(int(ref["strength"].iloc[-1]),
+                               f"Neural-net reference · trained {ref_trained}"), unsafe_allow_html=True)
 with c3:
     st.metric("BTC/USD", f"${price:,.0f}", f"{(price / daily['close'].iloc[-8] - 1) * 100:+.1f}% 7d")
     st.metric("Data through", date.strftime("%Y-%m-%d"))
@@ -70,7 +76,7 @@ def forecasts(stamp: str) -> dict:
     for r in pipeline.all_roles().itertuples():
         f = model_forecast(pipeline.oos_scores(r.source_run_id), daily)
         if f is not None:
-            out[f"{r.role} · {r.model_type}/{r.feature_set}"] = f
+            out[f"{r.role} · {r.model_type}/{r.feature_set} · trained {trained_on(r.created_at)}"] = f
     return {k: v for k, v in out.items() if v is not None}
 
 
@@ -85,7 +91,9 @@ if show_fc and fcs:
     default = [k for k in fcs if k == STAT or k.startswith("production")]
     picked = st.multiselect("Forecast of the next cycle extreme — models to display", list(fcs), default=default,
                             help="Each saved model forecasts from its own out-of-sample history; the statistical "
-                                 "model uses cycle gaps, halving timing, MVRV and the 200-week average.")
+                                 "model uses cycle gaps, halving timing, MVRV and the 200-week average. "
+                                 "'trained' is when the model was last fitted; its data cutoff is the "
+                                 "training_cutoff setting.")
     shaded = st.selectbox("Shade the Gaussian for", picked, index=0) if picked else None
 
 start = date - pd.Timedelta(days=365 * years)
@@ -114,7 +122,8 @@ if picked:
         f_ = fcs[name]
         d1, d2 = f_.date_interval(1)
         p1, p2 = f_.price_interval(1)
-        rows.append({"source": name, "kind": f_.kind, "date": f_.date_mu.strftime("%Y-%m-%d"),
+        rows.append({"source": name.split(" · trained ")[0], "trained": name.split(" · trained ")[-1] if " · trained " in name else "",
+                     "kind": f_.kind, "date": f_.date_mu.strftime("%Y-%m-%d"),
                      "date 68%": f"{d1:%d %b} – {d2:%d %b %Y}", "price": f_.price_mu,
                      "price 68%": f"${p1:,.0f} – ${p2:,.0f}", "vs today": f_.price_mu / price - 1,
                      "days ahead": (f_.date_mu - date).days, "P(already happened)": f_.p_already})

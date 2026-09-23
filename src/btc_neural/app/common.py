@@ -18,6 +18,16 @@ PRICE = "#8a8986"
 TOP_MARK, LOW_MARK = "#e34948", "#2a78d6"
 
 
+def trained_on(created_at: str | None) -> str:
+    """Date a model or run was trained, as YYYY-MM-DD (empty when unknown)."""
+    if not created_at:
+        return ""
+    try:
+        return pd.Timestamp(created_at).strftime("%Y-%m-%d")
+    except (ValueError, TypeError):
+        return str(created_at)[:10]
+
+
 def fmt_strength(s: int) -> str:
     s = int(s)
     return "Neutral 0" if s == 0 else (f"Buy {s}" if s > 0 else f"Sell {-s}")
