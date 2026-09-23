@@ -75,6 +75,56 @@ def apply_trailing(scores: pd.Series, budget: dict[int, int] | None = None, wind
     return out.where(scores.notna(), 0)
 
 
+def apply_trailing_adaptive(scores: pd.Series, close: pd.Series, budget: dict[int, int] | None = None,
+                            min_days: int = 365, max_days: int = 1825, minp: int = 365,
+                            anchor: str = "same", margin_days: int = 30) -> pd.Series:
+    """Trailing calibration whose window stretches from the last confirmed *opposite* extreme.
+
+    A fixed window has to be tuned to the cycle length: too long and it still contains the previous
+    same-side extreme (nothing can out-rank it, so nothing fires), too short and it holds only the
+    current regime and everything looks extreme.
+
+    anchor="same" (default): the window reaches back to just before the previous *same-side* extreme
+    (days since it, minus `margin_days`). Mid-cycle that still covers the previous top, which keeps
+    premature sells suppressed; by the time the next top approaches, the old one has dropped out and
+    a genuine extreme can rank. This is what the fixed 1095-day window does by coincidence of the
+    4-year cycle, made explicit and self-adjusting.
+
+    anchor="opposite": the window runs from the last confirmed *opposite* extreme ("this leg so
+    far"). Tested and much worse - early in a leg the window is short and everything looks extreme.
+
+    Confirmation is causal (features.confirmed_extremes: a low counts only once price has doubled).
+    """
+    from .features import confirmed_extremes
+    budget = budget or {int(k): v for k, v in load_config()["signal_budget"].items()}
+    ce = confirmed_extremes(close).reindex(scores.index)
+    a = scores.to_numpy(dtype=float)
+    n = len(a)
+    levels = sorted(budget)
+    fracs = np.array([min(budget[k] / CYCLE_DAYS, 0.49) for k in levels])
+    out = np.zeros(n, dtype=int)
+    sell_src = "days_since_top1" if anchor == "same" else "days_since_low1"
+    buy_src = "days_since_low1" if anchor == "same" else "days_since_top1"
+    off = margin_days if anchor == "same" else 0
+    win_sell = np.clip(np.nan_to_num(ce[sell_src].to_numpy(), nan=max_days) - off, min_days, max_days)
+    win_buy = np.clip(np.nan_to_num(ce[buy_src].to_numpy(), nan=max_days) - off, min_days, max_days)
+    for i in range(n):
+        if np.isnan(a[i]):
+            continue
+        for side, wins in ((1, win_buy), (-1, win_sell)):
+            lo = max(0, i + 1 - int(wins[i]))
+            w = a[lo:i + 1]
+            w = w[~np.isnan(w)]
+            if len(w) < minp:
+                continue
+            qs = np.quantile(w, 1 - fracs if side > 0 else fracs)
+            hit = (a[i] >= qs) if side > 0 else (a[i] <= qs)
+            if hit.any():
+                lvl = max(l for l, h in zip(levels, hit) if h)
+                out[i] = lvl if side > 0 else (out[i] if abs(out[i]) > lvl else -lvl)
+    return pd.Series(out, index=scores.index)
+
+
 def combine(frozen: pd.Series, trailing: pd.Series) -> pd.Series:
     """Hybrid: the stronger of the two readings when they agree in sign, else the frozen one."""
     same = np.sign(frozen) * np.sign(trailing) >= 0
@@ -130,7 +180,8 @@ def decluster(strength: pd.Series, score: pd.Series, mode: str = "none", gap_day
 
 def to_strength(scores_full: pd.Series, cal: Calibration, mode: str | None = None,
                 declustering: dict | None = None, trailing_window: int | None = None,
-                budget: dict[int, int] | None = None) -> pd.Series:
+                budget: dict[int, int] | None = None, close: pd.Series | None = None,
+                adaptive: dict | None = None) -> pd.Series:
     """Strength for every row of `scores_full` (which should include history for trailing mode)."""
     cfg = load_config()
     mode = mode or cfg["strength_mode"]
@@ -140,6 +191,14 @@ def to_strength(scores_full: pd.Series, cal: Calibration, mode: str | None = Non
     frozen = apply_calibration(scores_full, cal)
     if mode == "frozen":
         return decluster(frozen, scores_full, **dec)
+    if mode == "adaptive":
+        if close is None:
+            raise ValueError("strength_mode 'adaptive' needs the close series")
+        ad = {**load_config().get("trailing_adaptive", {}), **(adaptive or {})}
+        st = apply_trailing_adaptive(scores_full, close.reindex(scores_full.index), budget,
+                                     ad.get("min_days", 365), ad.get("max_days", 1825),
+                                     anchor=ad.get("anchor", "same"), margin_days=ad.get("margin_days", 30))
+        return decluster(st, scores_full, **dec)
     trailing = apply_trailing(scores_full, budget, window=window)
     if mode == "trailing":
         return decluster(trailing, scores_full, **dec)

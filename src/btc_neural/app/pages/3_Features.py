@@ -5,7 +5,7 @@ import streamlit as st
 
 from btc_neural.app.common import (BUY_10, PRICE, add_halving_lines, add_hover_spine, extremes_df, load_dataset,
                                    stacked_layout)
-from btc_neural.features import FEATURE_GROUPS, FEATURE_SETS, columns_for
+from btc_neural.features import FEATURE_DOCS, FEATURE_GROUPS, FEATURE_SETS, columns_for
 
 st.set_page_config(page_title="Features · BTC_Neural", page_icon="₿", layout="wide")
 st.title("Feature explorer")
@@ -17,6 +17,7 @@ c1, c2 = st.columns([1, 2])
 g = c1.selectbox("Group", ["cyclenorm (set)"] + groups)
 opts = columns_for("cyclenorm", list(feats.columns)) if g == "cyclenorm (set)" else [c for c in feats.columns if FEATURE_GROUPS.get(c) == g]
 feat = c2.selectbox("Feature", opts)
+st.info(f"**{feat}** — {FEATURE_DOCS.get(feat, 'no description yet')}")
 show_halvings = st.toggle("Show halvings", value=False, key="feat_halvings")
 
 fig = go.Figure()

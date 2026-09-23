@@ -109,8 +109,8 @@ def run_walkforward(model_type: str, feature_set: str, cfg: dict | None = None, 
         score = full.loc[start:end]
         dca = simulate(close, score * 0, fx, start, end, dca_only=True)
         for mode in modes:
-            strength = to_strength(full, cal, mode, cfg.get("declustering"),
-                                   cfg.get("trailing_window"), cfg.get("signal_budget")).loc[start:end]
+            strength = to_strength(full, cal, mode, cfg.get("declustering"), cfg.get("trailing_window"),
+                                   cfg.get("signal_budget"), close, cfg.get("trailing_adaptive")).loc[start:end]
             m = evaluate_period(close, score, strength, ex, start, end)
             sim = simulate(close, strength, fx, start, end)
             m["sim_btc_vs_dca"] = sim.summary["final_btc"] / dca.summary["final_btc"]

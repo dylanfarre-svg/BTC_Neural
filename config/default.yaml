@@ -58,9 +58,17 @@ calibration: oof       # how frozen thresholds are fitted: oof (inner leave-one-
 #   frozen   - thresholds fitted on the training period, applied unchanged
 #   trailing - causal rank of today's score within the model's own last `trailing_window` days
 #   hybrid   - the stronger of the two when they agree in sign
+#   adaptive - trailing, but the window runs from the last confirmed opposite extreme
 #   both     - the weaker of the two (must be extreme in absolute AND relative terms)
 strength_mode: trailing
 trailing_window: 1095
+# For strength_mode: adaptive - the window runs from the last confirmed opposite extreme instead
+# of a fixed length, clipped to this range.
+trailing_adaptive:
+  anchor: same        # same = window stops just before the previous same-side extreme | opposite
+  margin_days: 30
+  min_days: 365
+  max_days: 1825
 # Thin out strength-10 clusters (see calibrate.decluster): none | cooldown | cap | plateau
 # Without this the models fire strength 10 for weeks during a parabolic advance, far below the
 # eventual top (68 days at a median 64% below the 2017 top). After a 10 fires, the next one needs

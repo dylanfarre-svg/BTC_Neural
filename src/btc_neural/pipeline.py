@@ -147,9 +147,10 @@ def signal_history(role: str, feats: pd.DataFrame | None = None) -> pd.DataFrame
         _, feats = dataset()
     F = feats[model.columns]
     score, spread = model.predict_with_spread(F)
+    daily, _ = dataset()
     strength = to_strength(score, Calibration.from_dict(meta["calibration"]), meta.get("strength_mode"),
                            meta.get("declustering"), meta.get("cfg", {}).get("trailing_window"),
-                           meta.get("cfg", {}).get("signal_budget"))
+                           meta.get("cfg", {}).get("signal_budget"), daily["close"])
     out = pd.DataFrame({"score": score, "strength": strength, "spread": spread})
     out.attrs.update(run_id=run_id, meta=meta)
     return out
