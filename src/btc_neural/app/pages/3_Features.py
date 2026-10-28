@@ -33,7 +33,7 @@ if show_halvings:
     add_halving_lines(fig)
 stacked_layout(fig, "USD (log)", feat, 680, split=0.45)
 fig.update_layout(showlegend=False)
-st.plotly_chart(fig, use_container_width=True)
+st.plotly_chart(fig)
 st.caption("Dotted lines: cycle tops (red) and lows (blue), hindsight reference only.")
 
 s = feats[feat].dropna()

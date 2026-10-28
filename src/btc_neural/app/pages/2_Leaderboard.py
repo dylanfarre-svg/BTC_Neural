@@ -46,7 +46,7 @@ def heat(val):
 styled = (v[cols + ["run_id"]].style
           .map(heat, subset=score_cols)
           .format({c: "{:.3f}" for c in score_cols}, na_rep="–"))
-st.dataframe(styled, use_container_width=True, hide_index=True, height=620,
+st.dataframe(styled, hide_index=True, height=620,
              column_config={"selection_score": st.column_config.Column("selection score ↓")})
 st.caption(f"Shading: one scale for all score columns, {LO:.1f} (dark, best) to ≥{HI:.1f} (light, worst). "
            "E4 scores only the sell side (the current cycle's low is not confirmed).")

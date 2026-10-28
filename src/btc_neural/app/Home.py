@@ -112,7 +112,7 @@ if picked:
     window = daily["close"].loc[start:]
     add_hover_spine(fig, start, right, float(np.sqrt(window.min() * window.max())))
     fig.update_xaxes(range=[start, right])
-st.plotly_chart(fig, use_container_width=True)
+st.plotly_chart(fig)
 
 if picked:
     kinds = {f.kind for f in fcs.values()}
@@ -129,7 +129,7 @@ if picked:
                      "days ahead": (f_.date_mu - date).days, "P(already happened)": f_.p_already})
     st.dataframe(pd.DataFrame(rows).style.format({"price": "${:,.0f}", "vs today": "{:+.0%}",
                                                   "P(already happened)": "{:.0%}"}),
-                 use_container_width=True, hide_index=True)
+                 hide_index=True)
     st.caption("Shading intensity is the Gaussian density: the vertical band is the date, the horizontal band the "
                "price (log scale); other models are drawn as a marker with 1σ error bars. These forecasts come from "
                "3 past cycles, so treat the ranges as optimistic. They assume the 4-year rhythm continues.")
@@ -144,20 +144,20 @@ if picked:
                   "1σ": f"±{e.sd:.0f} days", "basis": e.note} for e in f_.time_estimates]
                 + [{"estimator": e.name, "type": "price", "estimate": f"${np.exp(e.mu):,.0f}",
                     "1σ": f"×/÷ {np.exp(e.sd):.2f}", "basis": e.note} for e in f_.price_estimates])
-            st.dataframe(est, use_container_width=True, hide_index=True)
+            st.dataframe(est, hide_index=True)
         st.markdown("**Hindcasts of the statistical model**: each past extreme forecast using only earlier cycles, "
                     "made 180 days after the preceding extreme.")
         hc = hindcasts(daily, feats)
         st.dataframe(hc.style.format({"date z": "{:+.2f}", "price z": "{:+.2f}", "forecast price": "${:,.0f}",
                                       "actual price": "${:,.0f}", "price error": "{:+.0%}"}),
-                     use_container_width=True, hide_index=True)
+                     hide_index=True)
 
 left, right = st.columns([1, 1])
 with left:
     st.subheader("What drives today's reading")
     d = drivers("production", stamp)
     if len(d):
-        st.plotly_chart(drivers_figure(d), use_container_width=True)
+        st.plotly_chart(drivers_figure(d))
         st.caption("Positive bars push toward BUY, negative toward SELL.")
 with right:
     st.subheader("Last 14 days")
@@ -167,7 +167,7 @@ with right:
     t["production"] = t["production"].map(fmt_strength)
     if ref is not None:
         t["nn_reference"] = t["nn_reference"].map(fmt_strength)
-    st.dataframe(t.style.format({"price": "${:,.0f}"}), use_container_width=True)
+    st.dataframe(t.style.format({"price": "${:,.0f}"}))
 
 with st.expander("Production model details"):
     st.json({k: v for k, v in meta.items() if k != "calibration"})

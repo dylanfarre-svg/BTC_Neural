@@ -43,7 +43,7 @@ shade = [(n, a, b) for n, a, b in eps[1:]]
 show_halvings = st.toggle("Show halvings", value=False, key="bt_halvings",
                           help="Test epochs already start at a halving; the lines make that explicit.")
 st.plotly_chart(signal_figure(close.loc[preds.index[0]:], preds["strength"], shade=shade, show_halvings=show_halvings,
-                              title="Out-of-sample signals by test epoch (E1…E4)"), use_container_width=True)
+                              title="Out-of-sample signals by test epoch (E1…E4)"))
 
 st.subheader("Signal quality per test cycle")
 cols = {
@@ -53,7 +53,7 @@ cols = {
     "buy_strong_wrong": "Buy ≥8 wrong side", "spearman_vs_position": "Rank corr. vs cycle position",
 }
 show = fr[[c for c in cols if c in fr]].rename(columns=cols)
-st.dataframe(show.style.format("{:.2f}", na_rep="–"), use_container_width=True)
+st.dataframe(show.style.format("{:.2f}", na_rep="–"))
 st.caption("Log distance 0.10 ≈ 10%, 0.29 ≈ 25% below a top / 33% above a low. Selection score = the worst of the "
            f"folds {', '.join(load_config()['folds']['selection_folds'])} (E1 has too little training data). "
            "E4 has no buy side yet: the current cycle's low is not confirmed.")
@@ -101,7 +101,7 @@ fig.update_layout(height=340, margin=dict(l=10, r=10, t=30, b=10), yaxis_title="
                   legend=dict(orientation="h", y=1.08), title="Portfolio value (USD)",
                   xaxis=dict(hoverformat="%Y-%m-%d"))
 add_hover_spine(fig, strat.equity.index[0], strat.equity.index[-1], float(strat.equity["value_usd"].median()))
-st.plotly_chart(fig, use_container_width=True)
+st.plotly_chart(fig)
 fig2 = go.Figure()
 fig2.add_trace(go.Scatter(x=strat.equity.index, y=strat.equity["btc"], name="Strategy BTC",
                           line=dict(color=BUY_10, width=2), hovertemplate="%{y:.4f} BTC"))
@@ -110,20 +110,20 @@ fig2.add_trace(go.Scatter(x=dca.equity.index, y=dca.equity["btc"], name="Plain D
 fig2.update_layout(height=300, margin=dict(l=10, r=10, t=30, b=10), yaxis_title="BTC", hovermode="x unified",
                    legend=dict(orientation="h", y=1.1), title="BTC held", xaxis=dict(hoverformat="%Y-%m-%d"))
 add_hover_spine(fig2, strat.equity.index[0], strat.equity.index[-1], float(strat.equity["btc"].median()))
-st.plotly_chart(fig2, use_container_width=True)
+st.plotly_chart(fig2)
 
 c1, c2 = st.columns(2)
 with c1:
     st.markdown("**Tax by SA tax year** (rand)")
     if len(strat.taxes):
         st.dataframe(strat.taxes.style.format({"net_gain_zar": "R{:,.0f}", "tax_zar": "R{:,.0f}", "tax_usd": "${:,.0f}"}),
-                     use_container_width=True, hide_index=True)
+                     hide_index=True)
 with c2:
     st.markdown("**Sells**")
     if len(strat.trades):
         s = strat.trades[strat.trades.side == "sell"][["date", "btc", "price", "usd", "gain_zar"]]
         st.dataframe(s.style.format({"btc": "{:.4f}", "price": "${:,.0f}", "usd": "${:,.0f}", "gain_zar": "R{:,.0f}"}),
-                     use_container_width=True, hide_index=True)
+                     hide_index=True)
 st.caption("Simplified SA capital gains tax model: gains measured in rand at FRED USD/ZAR, 40% inclusion × marginal rate, "
            "annual exclusion, losses carried forward. Not tax advice.")
 with st.expander("Run configuration"):
