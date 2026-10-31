@@ -7,7 +7,8 @@ Designed so that a third signal (4 hours to 4 days) slots in later as configurat
 > Research tool, not financial advice. Nothing here is a tax opinion; §8 flags where a practitioner's
 > input is needed before the numbers mean anything.
 
-**Status: plan only. Nothing is built.** Decisions are settled (§0); §14 lists what is still outstanding.
+**Status: built (phases 1–6); research results in §16.** The selection rule was frozen in §15 before
+the grid ran. Swing signals are logged to the append-only paper log and are never sent to ntfy.
 
 ---
 
@@ -19,7 +20,7 @@ Designed so that a third signal (4 hours to 4 days) slots in later as configurat
 | Q2 | Direction | **Long and short** |
 | Q2b | Short instrument | **Undecided — build sign-agnostic.** Funding hook is zero until a venue is named (§14) |
 | Q3 | Capital | **Separate sleeve**: its own cash and coins, no shared lot pool with the cycle holding |
-| Q4 | Venue and fees | **Outstanding — you are supplying exact figures** (§14). Everything net depends on this |
+| Q4 | Venue and fees | **Outstanding — you are supplying exact figures** (§14). Built with an explicit **assumption of 0.1% fee + 0.05% slippage per side**, and every result is also reported across a fee sweep (0–0.5%) |
 | Q5 | Tax | **Model both** capital (~18% effective) and revenue (~45%), side by side |
 | Q6 | Barrier mode | Vol-scaled (settled by Q1) |
 | Q7 | Stop | **0.6 × target distance** (6% stop against a 10% target, 1.67:1), tuned as an ablation |
@@ -154,7 +155,7 @@ costs come with it, and each needs an explicit answer rather than being discover
 
 | Cost | Mitigation |
 |---|---|
-| **The feature frame gets built twice.** `load_dataset()` is a `@st.cache_resource` build, and a cache cannot span processes | Add a **shared on-disk feature cache**: `features/cache.py` writes the built frame to `data/cache/features_<data_version>.parquet`, keyed by a hash of the latest `candles`/`series` timestamps. Both apps and the daily job read the artifact and rebuild only when the key changes. This is worth doing regardless — it also speeds up the daily job |
+| **The feature frame gets built twice.** `load_dataset()` is a `@st.cache_resource` build, and a cache cannot span processes | **Measured, and not a real cost: the cycle frame builds in 0.3 s and the trade frame in under 1 s.** The shared on-disk cache this row originally proposed was dropped: it would save nothing, and it carried a real hazard — `FEATURE_GROUPS` is filled as a side effect of *building* features, so a cache hit would leave it empty and `columns_for` would silently return no columns |
 | **`notify.dashboard_url` is one link.** A swing alert must not open the cycle dashboard | Config becomes `dashboard_url` (cycle) and `trade_dashboard_url` (swing). Each alert carries the URL for its own horizon |
 | **`common.py` will drift toward a fork** | The swing app imports it. A rule in the plan and in review: the swing app adds no chart helper that belongs in `common.py`. If both apps need it, it goes in `common.py` |
 
@@ -198,7 +199,6 @@ src/btc_neural/
     pipeline.py        # train / save / load per horizon
     live.py            # position state machine, trade log, alerts
   features/
-    cache.py           # NEW: shared on-disk feature frame, keyed by data version
   app/                 # existing cycle app, unchanged apart from reading the shared cache
   app_trade/
     Home.py            # Swing overview
@@ -590,3 +590,51 @@ One thing to flag rather than ask: with Q8 and Q17 set where they are, and `don'
 outcome, it is worth deciding now whether a *partial* result — say, a long side that works and a short
 side that doesn't — is interesting to you. If it is, Phase 5 should report the sides separately rather
 than only as a combined strategy. That costs nothing extra if decided before Phase 2.
+
+---
+
+## 15. Pre-registration (frozen 2026-10-31, before the grid ran)
+
+Written and committed before any grid result existed, so the selection cannot be fitted to the answer.
+
+**Fixed inputs.** Labels as configured: vol-scaled target (1σ of 14-day vol, 5% floor), stop at 0.6× the
+target distance, 28-day deadline, walked on 4h bars. Costs: **0.1% fee + 0.05% slippage per side
+(assumed — Q4)**. Longs are spot; shorts are perps and pay or receive the recorded Binance/Bybit funding.
+Shorts are not simulated before 2019-01-01 (§7e). Trading sleeve is separate, 1× notional, one position
+at a time, 5-day re-entry cooldown.
+
+**Grid.**
+
+| Dimension | Values |
+|---|---|
+| Models | `srules_momentum`, `srules_pullback` (published baselines, no training), `linear` (ridge), `lgbm` × 10 seeds, `ens` (ridge + LightGBM) × 10 seeds, `nn` × 3 seeds on `fast_core` and `fast_all` (reference track) |
+| Population A (valid 2015+) | `fast_core`, `fast_flow`, `fast_macro`, `fast_cycle`, `fast_all` |
+| Population B (valid 2019+) | `fast_sent`, `fast_funding`, `fast_deriv` |
+| Trade threshold | today's score beats the {0.75, 0.80, 0.85, 0.90, 0.95} quantile of the model's own trailing 730 days of out-of-sample scores; learned models must also expect to clear their round-trip cost |
+
+**Windows.** *Full* = evaluation start (2015-01-01 for population A) to 2025-10-29. *Modern* = 2019-01-01
+to 2025-10-29. *Holdout* = 2025-10-30 onward — **never used for selection**.
+
+**Selection metric.** For each (model, feature set, quantile): the **mean across seeds of
+min(Sharpe full, Sharpe modern)**, pre-tax, net of fees, slippage and funding, long and short combined.
+
+**Eligibility.** Seed-mean trades per year on the full window between 12 and 30 (the 15–25 target, Q9,
+with a margin).
+
+**Promotion.** The eligible population-A configuration with the highest selection metric. The verdict
+is run on its **seed ensemble** (out-of-sample scores averaged across its seeds) against every §9a
+criterion, separately for the capital and revenue tax treatments, on the full and modern windows.
+
+**Population B.** A late feature set is adopted only if it beats `fast_core` — same model, same quantile,
+**same window** — by more than two standard errors across seeds.
+
+**Reported but not used to select:** the holdout year; long-only and short-only results (decided in
+conversation: a working long side is of interest even if the short side fails); a fee sweep from 0% to
+0.5% per side; funding switched off; a stop ratio of 1.0 (Q7); a deflated Sharpe ratio over every
+population-A configuration tried.
+
+**Disclosure.** Before this section was written, a smoke test ran three configurations (`srules_momentum`,
+`linear`, `lgbm` seed 7, all on `fast_core`, quantiles 0.90 and 0.95). It showed quantiles ≥ 0.90 produce
+only 7–13 trades a year — below the Q9 target — so the quantile grid was widened downward from the
+originally planned {0.90, 0.95, 0.975}. Their Sharpe ratios were seen (0.25–0.62, against 1.13 for
+buy-and-hold). Those runs were deleted and are re-run inside the grid like everything else.

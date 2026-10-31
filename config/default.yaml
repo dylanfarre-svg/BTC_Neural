@@ -150,3 +150,61 @@ forecast:
   min_date_sd_days: 30    # floor on the date uncertainty (1 sigma)
   min_logp_sd: 0.15       # floor on the log-price uncertainty (1 sigma, ~16%)
   halving_sd_days: 20     # uncertainty in the estimated date of the next halving
+
+# --- Trading signals (research) ---------------------------------------------------
+# Discrete trade proposals on shorter horizons, separate from the cycle signal above.
+# See PLAN_SWING.md. Nothing in this block changes the cycle model. Swing signals are
+# logged to the append-only trade_signals table and are NEVER pushed to ntfy.
+trade:
+  dashboard_url: http://localhost:8503
+  swing:
+    bars: 1d                    # one decision per day, at the daily close (00:00 UTC)
+    resolve_on: 4h              # barriers are walked on 4h bars (removes same-bar ambiguity)
+    hold_days: {min: 7, max: 28}
+    sides: [long, short]
+    barrier:
+      mode: vol_scaled
+      sigma_mult: 1.0           # target = 1 sigma of 14-day vol (daily vol over 30 days x sqrt 14) ...
+      floor: 0.05               # ... never less than 5%
+      stop_ratio: 0.6           # stop at 0.6 x the target distance
+      vol_window_days: 30
+    cooldown_days: 5
+    max_concurrent: 1
+    target_trades_per_year: 20
+    costs:
+      # ASSUMPTION until the real venue's schedule is supplied (PLAN_SWING.md Q4): 0.1% per side,
+      # typical of a retail order-book taker fee. Results are also reported across a fee sweep.
+      fee_rate: 0.001
+      slippage: 0.0005          # per side
+      funding:
+        enabled: true
+        sides: [short]          # longs are spot; shorts are perps, which pay or receive funding
+        fallback_8h: 0.0001     # used where no funding history exists
+    tax:
+      treatments: [capital, revenue]
+      capital: {inclusion_rate: 0.40, marginal_rate: 0.45}
+      revenue: {marginal_rate: 0.45}
+      tax_year_start_month: 3
+    folds:
+      block_days: 90
+      purge_days: 28            # = hold_days.max: labels of purged rows reach into the test block
+      embargo_days: 10          # inert for forward-only walk-forward; kept for k-fold use
+      min_train_days: 730
+      train_start: "2012-01-01"
+      warmup_start: "2014-01-01"  # OOS scores from here feed the causal trade thresholds
+    backtest_start: "2015-01-01"
+    short_start: "2019-01-01"   # shorts are not simulated before liquid perp venues existed
+    modern_start: "2019-01-01"  # Q17: the result must also hold on this subsample alone
+    holdout_days: 365           # final year excluded from all selection ...
+    holdout_start: "2025-10-30" # ... pinned when the grid was pre-registered, so it cannot drift
+    threshold:
+      trailing_days: 730        # trade when today's score beats this quantile of the model's own
+      quantiles: [0.75, 0.80, 0.85, 0.90, 0.95]  # trailing OOS scores (a grid dimension)
+    min_trades_per_year: 12     # selection eligibility band around target_trades_per_year
+    max_trades_per_year: 30
+  intraday:                     # planned, not built: PLAN_SWING.md section 13
+    bars: 4h
+    resolve_on: 4h
+    hold_days: {min: 0.17, max: 4}
+    barrier: {mode: vol_scaled, sigma_mult: 1.0, floor: 0.02, stop_ratio: 0.6, vol_window_days: 30}
+    folds: {block_days: 30, purge_days: 4, embargo_days: 2, min_train_days: 730}

@@ -77,6 +77,43 @@ CREATE TRIGGER IF NOT EXISTS live_signals_no_update BEFORE UPDATE ON live_signal
 BEGIN SELECT RAISE(ABORT, 'live_signals is append-only'); END;
 CREATE TRIGGER IF NOT EXISTS live_signals_no_delete BEFORE DELETE ON live_signals
 BEGIN SELECT RAISE(ABORT, 'live_signals is append-only'); END;
+
+-- Trading signals (btc_neural.trade). New tables only: the cycle tables above are never altered,
+-- because CREATE TABLE IF NOT EXISTS cannot add a column to a table that already exists.
+CREATE TABLE IF NOT EXISTS trade_runs (
+    run_id TEXT PRIMARY KEY, created_at TEXT, horizon TEXT, model_type TEXT,
+    feature_set TEXT, role TEXT,      -- experiment | production
+    config_json TEXT, weights_path TEXT, notes TEXT
+);
+CREATE TABLE IF NOT EXISTS trade_predictions (   -- walk-forward out-of-sample scores
+    run_id TEXT, date TEXT, side TEXT, block TEXT, score REAL,
+    PRIMARY KEY (run_id, date, side)
+);
+CREATE TABLE IF NOT EXISTS trade_evals (         -- one per (run, threshold, sides) variant
+    eval_id TEXT PRIMARY KEY, run_id TEXT, quantile REAL, sides TEXT,
+    created_at TEXT, metrics_json TEXT
+);
+CREATE TABLE IF NOT EXISTS trade_backtest (      -- one row per simulated trade
+    eval_id TEXT, trade_id INTEGER, side TEXT, entry_date TEXT, entry_price REAL,
+    exit_time TEXT, exit_price REAL, exit_reason TEXT, target REAL, gross_ret REAL,
+    cost REAL, funding REAL, net_ret REAL, hold_days REAL, mae REAL, mfe REAL,
+    PRIMARY KEY (eval_id, trade_id)
+);
+CREATE TABLE IF NOT EXISTS trade_positions (     -- live paper-trading state machine
+    trade_id TEXT PRIMARY KEY, horizon TEXT, run_id TEXT, side TEXT, state TEXT,
+    opened_at TEXT, entry_price REAL, target_price REAL, stop_price REAL, deadline TEXT,
+    closed_at TEXT, exit_price REAL, exit_reason TEXT, net_ret REAL
+);
+CREATE TABLE IF NOT EXISTS trade_signals (       -- append-only paper log, one row per horizon per bar
+    id INTEGER PRIMARY KEY AUTOINCREMENT, ts TEXT, horizon TEXT, run_id TEXT,
+    score_long REAL, score_short REAL, thr_long REAL, thr_short REAL,
+    action TEXT, state TEXT, price REAL, drivers_json TEXT, created_at TEXT,
+    UNIQUE (ts, horizon)
+);
+CREATE TRIGGER IF NOT EXISTS trade_signals_no_update BEFORE UPDATE ON trade_signals
+BEGIN SELECT RAISE(ABORT, 'trade_signals is append-only'); END;
+CREATE TRIGGER IF NOT EXISTS trade_signals_no_delete BEFORE DELETE ON trade_signals
+BEGIN SELECT RAISE(ABORT, 'trade_signals is append-only'); END;
 """
 
 

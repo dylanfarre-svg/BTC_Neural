@@ -127,12 +127,14 @@ class LGBMModel(Model):
         self.columns = list(F.columns)
         rows = _train_rows(F, y)
         p = {**load_config()["models"]["lgbm"], **self.cfg}
-        mono = [-1 if c in SELL_MONOTONE else 0 for c in self.columns]
+        # The SELL_MONOTONE constraints encode cycle-valuation logic; other horizons opt out.
+        mono = {"monotone_constraints": [-1 if c in SELL_MONOTONE else 0 for c in self.columns],
+                "monotone_constraints_method": "advanced"} if p.get("monotone", True) else {}
         self.m = lgb.LGBMRegressor(
             n_estimators=p["n_estimators"], learning_rate=p["learning_rate"], num_leaves=p["num_leaves"],
             min_child_samples=p["min_child_samples"], subsample=p["subsample"], subsample_freq=1,
-            colsample_bytree=p["colsample_bytree"], reg_lambda=p["reg_lambda"], monotone_constraints=mono,
-            monotone_constraints_method="advanced", random_state=p.get("seed", 7), n_jobs=1, verbose=-1)
+            colsample_bytree=p["colsample_bytree"], reg_lambda=p["reg_lambda"], **mono,
+            random_state=p.get("seed", 7), n_jobs=1, verbose=-1)
         self.m.fit(F.loc[rows], y.loc[rows], sample_weight=w.loc[rows])
         return self
 
@@ -188,12 +190,19 @@ class NNModel(Model):
         Z = self.std.transform(F[self.columns])
         seq_cols = [c for c in self.seq_cols]
         S = Z[seq_cols].to_numpy(dtype=np.float32)
-        W = self.p["seq_weeks"]
-        idx = np.arange(len(Z))[:, None] - 7 * np.arange(W)[::-1][None, :]
+        idx = self._seq_index(len(Z))
         mask = idx < 0
         seq = S[np.clip(idx, 0, None)]
         seq[mask] = 0.0
         return torch.tensor(Z.to_numpy(dtype=np.float32)), torch.tensor(seq).permute(0, 2, 1).contiguous()
+
+    def _seq_index(self, n: int) -> np.ndarray:
+        """Row positions forming each sample's sequence: `seq_weeks` weekly steps ending today."""
+        W = self.p["seq_weeks"]
+        return np.arange(n)[:, None] - 7 * np.arange(W)[::-1][None, :]
+
+    def _seq_features(self) -> list[str]:
+        return SEQ_FEATURES
 
     def _net(self, d_static: int, d_seq: int):
         return _Net(d_static, d_seq, self.p["dropout"])
@@ -203,7 +212,7 @@ class NNModel(Model):
         self.p = {**load_config()["models"]["nn"], **self.cfg}
         dev = torch.device("mps" if torch.backends.mps.is_available() and self.p.get("device", "auto") != "cpu" else "cpu")
         self.columns = list(F.columns)
-        self.seq_cols = [c for c in SEQ_FEATURES if c in self.columns]
+        self.seq_cols = [c for c in self._seq_features() if c in self.columns]
         rows = _train_rows(F, y)
         self.std = Standardizer().fit(F.loc[rows])
         self._means = self.std.mean.to_dict()
