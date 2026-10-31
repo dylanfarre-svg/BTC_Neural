@@ -81,6 +81,9 @@ def already_sent(date: str, kind: str) -> bool:
 def dispatch(date: str, alerts: list[Alert], force: bool = False) -> list[str]:
     sent = []
     cfg = load_config()["notify"]
+    # Trading signals (btc_neural.trade) are research only and must never reach ntfy or the
+    # notification centre. Enforced here rather than at the call sites, so it cannot be bypassed.
+    alerts = [a for a in alerts if not a.kind.startswith("trade")]
     for a in alerts:
         if not force and already_sent(date, a.kind):
             continue

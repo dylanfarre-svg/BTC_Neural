@@ -129,3 +129,17 @@ def test_trade_signals_is_append_only(tmp_path, monkeypatch):
         db.execute("UPDATE trade_signals SET action='long'")
     with pytest.raises(sqlite3.DatabaseError, match="append-only"):
         db.execute("DELETE FROM trade_signals")
+
+
+def test_trade_alerts_never_reach_ntfy(monkeypatch):
+    """The user's instruction: no swing signals on ntfy. Enforced in dispatch itself."""
+    from btc_neural import notify
+    sent = []
+    monkeypatch.setattr(notify, "send_ntfy", lambda a: sent.append(("ntfy", a.kind)))
+    monkeypatch.setattr(notify, "send_macos", lambda a: sent.append(("macos", a.kind)))
+    monkeypatch.setattr(notify, "already_sent", lambda d, k: False)
+    monkeypatch.setattr(notify.db, "log_notification", lambda *a, **k: None)
+    alerts = [notify.Alert(k, "t", "m") for k in ("trade_enter", "trade_stop", "trade", "strong")]
+    out = notify.dispatch("2026-01-01", alerts, force=True)
+    assert out == ["strong"]
+    assert all(kind == "strong" for _, kind in sent)

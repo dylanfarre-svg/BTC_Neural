@@ -638,3 +638,113 @@ population-A configuration tried.
 only 7–13 trades a year — below the Q9 target — so the quantile grid was widened downward from the
 originally planned {0.90, 0.95, 0.975}. Their Sharpe ratios were seen (0.25–0.62, against 1.13 for
 buy-and-hold). Those runs were deleted and are re-run inside the grid like everything else.
+
+---
+
+## 16. Results (2026-10-31)
+
+**Verdict: does not meet §9. Don't deploy.** It fails every buy-and-hold comparison except one, and on
+the modern window its expectancy's lower bound dips below zero. Paper trading has started anyway, as
+research: one row a day in the append-only log, against a gate frozen on day one (§9c).
+
+There *is* an edge — it beats random entries in every window and is positive in every regime — but it is
+small, it is almost entirely on the long side, it has faded since 2021, and it is nowhere near enough to
+beat simply holding a market that drifted up ~50% a year.
+
+### What was promoted
+
+By the §15 rule: **ridge regression on `fast_macro`** (fast price/vol/structure/volume/intraday features
+plus short-horizon macro), trading when its score beats the **90th percentile** of its own trailing scores.
+12.2 trades a year. 95 population-A configurations were tried; 67 were eligible.
+
+### By window
+
+| | Full 2015 → 2025-10 | Modern 2019 → 2025-10 | Holdout 2025-10 → 2026-10 |
+|---|---|---|---|
+| Trades (long / short) | 132 (96 / 36) | 85 (49 / 36) | 12 (7 / 5) |
+| Hit rate (net > 0) | 55% | 48% | 58% |
+| Mean net per trade | **+2.62%** | +1.56% | +1.31% |
+| 95% lower bound | +1.14% | **−0.10%** | −1.79% |
+| Median hold | 7.2 days (52% inside 7–28) | 8.2 days | 6.1 days |
+| Sharpe — strategy / buy-and-hold | 0.95 / **1.13** | 0.59 / **1.10** | 0.75 / −0.58 |
+| Total, after tax: capital / revenue | 10.5× / 5.0× | 2.1× / 1.6× | 1.12× / 1.08× |
+| Buy-and-hold, after CGT on liquidation | **281×** | **24.6×** | 0.70× |
+| Max drawdown — strategy / buy-and-hold | −41% / −83% | −41% / −77% | −14% / −47% |
+| Time in market | 35% | 36% | 30% |
+| Random entries doing at least as well | 0 of 1,000 | 0 of 1,000 | 0 of 1,000 |
+
+### §9 checklist
+
+| Criterion | Full | Modern |
+|---|---|---|
+| Mean net per trade, 95% lower bound > 0 | ✅ | ❌ (−0.10%) |
+| Beats 95% of random-entry runs | ✅ | ✅ |
+| Positive in ≥ 3 of 4 regimes | ✅ (4 of 4) | ✅ (4 of 4) |
+| Median hold inside 7–28 days | ✅ (7.2, barely) | ✅ |
+| Beats buy-and-hold: Sharpe | ❌ | ❌ |
+| Beats buy-and-hold: total return (either tax treatment) | ❌ | ❌ |
+| Beats buy-and-hold: return per year in market | ✅ capital / ❌ revenue | ❌ |
+
+Deflated Sharpe ratio over the 95 configurations: 0.94 — the edge is unlikely to be pure selection luck,
+but it is not large.
+
+### Findings
+
+1. **The edge is real but small, and the learned models earn their place.** Every window beats 1,000
+   random-entry runs with the same trade count, long/short mix and exits (median random outcome over
+   2015–2025: 1.66×; strategy: 16.2× pre-tax). 76% of eligible configurations scored above zero. The best
+   published baseline (time-series momentum) scored 0.27 against 0.60 for the winner and 0.53 for the
+   10-seed ridge + LightGBM ensemble.
+
+2. **It cannot beat holding, for the reason §2d predicted.** In the market 35% of the time, against a
+   drift of ~50% a year, the strategy compounds to 10× while holding compounds to 281×. It does offer
+   half the drawdown (−41% vs −83%), and per year actually invested it out-earned holding over the full
+   window under capital-gains treatment (annualised log return 0.62 vs 0.52, i.e. +86% vs +68% a year) —
+   but not on the modern window, and not under revenue treatment.
+
+3. **The edge has faded.** Mean net per trade by entry year:
+
+   | 2015 | 2016 | 2017 | 2018 | 2019 | 2020 | 2021 | 2022 | 2023 | 2024 | 2025 |
+   |---|---|---|---|---|---|---|---|---|---|---|
+   | +4.1% | +2.8% | +6.7% | +4.3% | +4.7% | +2.9% | +3.0% | −0.6% | +1.1% | −2.6% | −1.4% |
+
+   Seven good years, then four roughly flat ones. That is why the modern window's lower bound slips below
+   zero. The holdout year (+1.3%, beating a 30% fall in BTC) is encouraging but is 12 trades.
+
+4. **Long works; short doesn't.** Long-only: full-window Sharpe 1.06, mean +3.5% per trade (lower bound
+   +1.8%); modern 0.72 (lower bound +0.25%) — the only slice that passes the expectancy test on both
+   windows. Short-only: 41 trades since 2019, mean −0.5%, Sharpe −0.12. The holdout short side was
+   positive (+1.1% on 8 trades), too few to read.
+
+5. **Costs don't decide it.** Sharpe falls from 1.02 at zero fees to 0.66 at 0.5% per side (full window);
+   at the assumed 0.1% it is 0.95. Any realistic fee schedule leaves the verdict unchanged, so the
+   outstanding Q4 answer cannot rescue it. Funding barely matters (Sharpe 0.94 with it switched off),
+   because there are few shorts.
+
+6. **The 0.6 stop is better than a symmetric one.** A stop ratio of 1.0 roughly halved the Sharpe
+   (0.45 full window). But the 0.6 stop resolves many trades fast: median hold 7.2 days, only 52% inside
+   the 7–28 band.
+
+7. **The late data adds nothing, and derivatives data hurts.** No population-B set beat `fast_core` over
+   its own window. With funding + open interest + DVOL, LightGBM was 0.55 ± 0.13 Sharpe *worse* and the
+   ensemble 0.35 ± 0.08 worse — classic overfitting of a short history (evaluation from 2022-09).
+
+### Caveats
+
+- **The winner is a single deterministic fit.** Ridge configurations are one draw each, while the
+  ensembles are 10-seed means; maximum-of-noisy-candidates favours single draws. The 10-seed
+  `ens / fast_flow / 0.85` (0.53 ± 0.04 SE) is the more robust result and tells the same story.
+- **The winner is sensitive to its threshold.** The same model at quantile 0.75 scored −1.35 Sharpe on
+  the holdout.
+- **The quantile grid was widened after a smoke test** (disclosed in §15), on trade counts rather than
+  performance.
+- **Fees are assumed** (0.1% + 0.05% slippage per side) until Q4 is answered — finding 5 shows it
+  doesn't matter for the verdict.
+- Regimes use hindsight cycle legs; that is legitimate for evaluation but not something the strategy knew.
+
+### What this means for the intraday horizon
+
+§2c put the 4h–4d horizon at a 2–3% band, where a 0.3% round trip is 10–15% of the move rather than
+3%. The swing edge survives costs comfortably but is small and fading; at a third of the target width
+the same edge per trade would be largely consumed by fees. Worth building only if you want to know
+for certain, and with the expectation that it fails §9 by more.

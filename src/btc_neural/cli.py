@@ -92,6 +92,33 @@ def cmd_app(a):
     os.execvp(sys.executable, [sys.executable, "-m", "streamlit", "run", str(app), "--server.headless", "true"])
 
 
+def cmd_trade(a):
+    """Swing signal research and paper trading (PLAN_SWING.md). Never notifies."""
+    import json
+    if a.sub == "ingest":
+        from .trade.ingest import ingest_derivatives
+        ingest_derivatives()
+    elif a.sub == "research":
+        from .trade.research import run_all
+        run_all(workers=a.workers)
+    elif a.sub == "leaderboard":
+        from .trade.research import config_table, experiment_runs  # noqa: F401
+        import pandas as pd
+        ev = pd.read_csv(ROOT / "runs" / "swing_grid.csv")
+        pd.set_option("display.width", 220)
+        print(config_table(ev).head(a.top).round(3).to_string(index=False))
+    elif a.sub == "daily":
+        from .trade.live import run_swing_daily
+        print(json.dumps(run_swing_daily(), indent=2, default=str))
+    elif a.sub == "status":
+        from .trade.live import chosen_config, paper_gate
+        print(json.dumps({"config": chosen_config(), "paper_gate": paper_gate()}, indent=2, default=str))
+    elif a.sub == "app":
+        app = ROOT / "src" / "btc_neural" / "app_trade" / "Home.py"
+        os.execvp(sys.executable, [sys.executable, "-m", "streamlit", "run", str(app), "--server.headless", "true",
+                                   "--server.port", "8503"])
+
+
 PLIST_LABEL = "com.btcneural.daily"
 
 
@@ -171,6 +198,11 @@ def main(argv: list[str] | None = None) -> None:
     sub.add_parser("notify-test", help="send a test notification").set_defaults(fn=cmd_notify_test)
     sub.add_parser("send-chart", help="push today's Home chart and forecast to ntfy").set_defaults(fn=cmd_send_chart)
     sub.add_parser("app", help="launch the Streamlit dashboard").set_defaults(fn=cmd_app)
+    tr = sub.add_parser("trade", help="swing signal: research, paper trading, dashboard (never notifies)")
+    tr.add_argument("sub", choices=["ingest", "research", "leaderboard", "daily", "status", "app"])
+    tr.add_argument("--workers", type=int, default=6)
+    tr.add_argument("--top", type=int, default=25)
+    tr.set_defaults(fn=cmd_trade)
     sub.add_parser("install-schedule", help="install the daily launchd job").set_defaults(fn=cmd_install_schedule)
     sub.add_parser("uninstall-schedule", help="remove the daily launchd job").set_defaults(fn=cmd_uninstall_schedule)
     a = ap.parse_args(argv)

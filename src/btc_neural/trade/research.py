@@ -136,7 +136,7 @@ def verdict(ev: pd.DataFrame, chosen: pd.Series) -> dict:
     hz, daily, feats, out, m = research_data()
     runs = ev[(ev.model_type == chosen.model_type) & (ev.feature_set == chosen.feature_set)].run_id.unique().tolist()
     scores = ensemble_scores(runs)
-    q = float(chosen.quantile)
+    q = float(chosen["quantile"])
     base = runs[0]
     rep: dict = {"chosen": {k: (v.item() if hasattr(v, "item") else v) for k, v in chosen.items()},
                  "seeds_in_ensemble": len(runs)}
@@ -208,7 +208,7 @@ def population_b(ev: pd.DataFrame, chosen: pd.Series) -> dict:
             core = ev[(ev.model_type == mt) & (ev.feature_set == "fast_core")].run_id.unique()
             if not len(late) or not len(core):
                 continue
-            q = float(chosen.quantile)
+            q = float(chosen["quantile"])
             sl = [evaluate(r, q, store=False)["windows"]["full"]["sharpe"] for r in late]
             sc = [evaluate(r, q, store=False, windows_of=fs)["windows"]["full"]["sharpe"] for r in core]
             d = np.mean(sl) - np.mean(sc)
@@ -228,7 +228,7 @@ def stop_ratio_ablation(chosen: pd.Series, ratios=(1.0,)) -> dict:
         runs = [run_walkforward(chosen.model_type, chosen.feature_set, {"seed": s, "stop_ratio": sr}, verbose=False)
                 for s in seeds]
         scores = ensemble_scores(runs)
-        r = evaluate(runs[0], float(chosen.quantile), scores=scores)
+        r = evaluate(runs[0], float(chosen["quantile"]), scores=scores)
         out[str(sr)] = {w: {k: r["windows"][w].get(k) for k in ("sharpe", "total_pre_tax", "mean_net", "median_hold",
                                                                   "trades_per_year", "hit_rate")}
                         for w in ("full", "modern", "holdout")}
@@ -237,7 +237,13 @@ def stop_ratio_ablation(chosen: pd.Series, ratios=(1.0,)) -> dict:
 
 def run_all(workers: int = 6) -> dict:
     run_grid(workers)
-    ev = evaluate_grid(workers)
+    return finish(evaluate_grid(workers))
+
+
+def finish(ev: pd.DataFrame | None = None) -> dict:
+    """Selection onwards, from the stored grid evaluations (runs/swing_grid.csv)."""
+    if ev is None:
+        ev = pd.read_csv(ROOT / "runs" / "swing_grid.csv")
     chosen = select(ev)
     print("selected:", dict(chosen), flush=True)
     rep = verdict(ev, chosen)
@@ -250,4 +256,5 @@ def run_all(workers: int = 6) -> dict:
 
 
 if __name__ == "__main__":
-    run_all()
+    import sys
+    finish() if "--finish" in sys.argv else run_all()

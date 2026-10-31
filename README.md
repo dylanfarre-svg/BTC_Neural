@@ -346,6 +346,39 @@ not imported modules.
 Every model selector shows when that model was last trained (`trained 2026-09-22`); the data it was allowed
 to learn from is capped separately by `training_cutoff`. Every price chart has a **Show halvings** toggle and keeps the date tooltip alive past the end of the data.
 
+## Swing signal (research)
+
+A second, separate signal: discrete **7–28 day trades, long and short**, with a vol-scaled target (1σ of
+14-day volatility, never below 5%), a stop at 0.6× the target distance and a 28-day deadline. Design and
+decisions: [PLAN_SWING.md](PLAN_SWING.md); the selection rule was pre-registered there (§15) before the grid
+ran, and the results are in §16. **Paper trading only: swing signals are never sent to ntfy** —
+`notify.dispatch` drops any `trade*` alert, and a test pins it.
+
+```bash
+uv run btcn trade ingest       # funding (Binance/Bybit), open interest (Bybit), DVOL (Deribit)
+uv run btcn trade research     # grid -> pre-registered selection -> section 9 verdict (runs/swing_report.json)
+uv run btcn trade leaderboard  # seed-mean results per configuration
+uv run btcn trade daily        # score today and advance the paper position (also runs inside `btcn daily`)
+uv run btcn trade status       # promoted configuration and the paper-trading gate
+uv run btcn trade app          # swing dashboard at http://localhost:8503
+```
+
+| Stage | What happens | Code |
+|---|---|---|
+| Labels | Triple barrier walked on **4h bars** for both sides: gaps fill at the open, same-bar ties assume the stop. Models learn the trade's R multiple, weighted by label uniqueness | `trade/labels.py` |
+| Features | 74 short-horizon features in their own registry (the cycle frame is untouched): returns, vol, structure, volume, intraday sessions, exchange flows, sentiment, macro, funding, open interest, DVOL, and the cycle model's *out-of-sample* score | `trade/features.py` |
+| Validation | Purged walk-forward over 90-day blocks; a trade fires when today's score beats a trailing quantile of the model's own earlier out-of-sample scores | `trade/folds.py`, `trade/backtest.py` |
+| Simulation | Separate sleeve, one position, 5-day cooldown; fees + slippage (assumed 0.1% + 0.05% per side), funding on shorts (perps), SA tax both as capital and as revenue | `trade/simulator.py` |
+| Evaluation | Full / modern (2019+) / holdout windows; beats buy-and-hold on total, Sharpe and return per year in market? Random-entry bootstrap, regimes, deflated Sharpe | `trade/metrics.py`, `trade/research.py` |
+| Live | The walk-forward continued daily: the current block's models, append-only `trade_signals`, positions in `trade_positions`, a paper-trading gate frozen on the first day | `trade/live.py` |
+
+**Result (PLAN_SWING.md §16): does not meet the ship criteria.** The promoted model (ridge on fast price +
+macro features, ~12 trades a year) has a real but small edge — +2.6% net per trade over 2015–2025, beating
+1,000 random-entry runs in every window and positive in every regime — but it is almost all on the long
+side, it has faded since 2021, and in the market 35% of the time it cannot keep up with holding: Sharpe
+0.95 vs 1.13, and 10× after capital-gains tax vs 281× for buy-and-hold. Shorts lose money; funding, open
+interest and DVOL make things worse. It is paper-trading for the record, not for use.
+
 ## Configuration
 
 `config/default.yaml` holds everything: cycle extremes (used only for labels and evaluation), `training_cutoff`, the signal
@@ -363,7 +396,10 @@ uv run pytest
 ```
 
 `tests/test_no_lookahead.py` rebuilds all features on data truncated at six dates and asserts that they
-match the full-history values exactly. That makes the backtest honest.
+match the full-history values exactly. That makes the backtest honest. `tests/test_trade.py` does the same
+for the swing features, checks barrier labels on hand-built 4h paths (targets, stops, gaps, same-bar ties,
+deadlines), purging, simulator/equity consistency, the append-only paper log, and that no `trade*` alert can
+reach ntfy.
 
 ## Method notes
 - **Judge a change on 10 seeds where it matters.** The baseline's 6-seed mean was 0.511; a 10-seed run

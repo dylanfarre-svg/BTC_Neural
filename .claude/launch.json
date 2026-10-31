@@ -4,8 +4,32 @@
     {
       "name": "dashboard",
       "runtimeExecutable": "uv",
-      "runtimeArgs": ["run", "streamlit", "run", "src/btc_neural/app/Home.py", "--server.headless", "true", "--server.port", "8502"],
+      "runtimeArgs": [
+        "run",
+        "streamlit",
+        "run",
+        "src/btc_neural/app/Home.py",
+        "--server.headless",
+        "true",
+        "--server.port",
+        "8502"
+      ],
       "port": 8502
+    },
+    {
+      "name": "swing-dashboard",
+      "runtimeExecutable": "uv",
+      "runtimeArgs": [
+        "run",
+        "streamlit",
+        "run",
+        "src/btc_neural/app_trade/Home.py",
+        "--server.headless",
+        "true",
+        "--server.port",
+        "8503"
+      ],
+      "port": 8503
     }
   ]
 }

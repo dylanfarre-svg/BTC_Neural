@@ -248,12 +248,28 @@ def run_daily(notify: bool = True, force_notify: bool = False, verbose: bool = T
             sent = dispatch(date, alerts, force=force_notify)
         elif notify and problems:
             sent = dispatch(date, [Alert("health", "BTC_Neural data problem", "\n".join(problems), 4, "x")], force=force_notify)
-        return {"date": date, "price": price, "signals": out, "problems": problems, "sent": sent}
+        return {"date": date, "price": price, "signals": out, "problems": problems, "sent": sent,
+                "swing": _swing_step(verbose)}
     except Exception as e:  # noqa: BLE001 - a crash must still produce an alert
         msg = f"Daily job failed: {e}\n{traceback.format_exc()[-800:]}"
         if notify:
             dispatch(pd.Timestamp.now().strftime("%Y-%m-%d"), [Alert("health", "BTC_Neural daily job FAILED", msg, 5, "x")], force=True)
         raise
+
+
+def _swing_step(verbose: bool) -> dict:
+    """Swing paper trading (PLAN_SWING.md), after the cycle work is done and its alerts sent.
+
+    Research only: it logs to trade_signals and never notifies. A failure is printed to the daily
+    log and returned, but deliberately NOT added to `problems` - those become ntfy health alerts.
+    """
+    try:
+        from .trade.live import run_swing_daily
+        return run_swing_daily(verbose=verbose)
+    except Exception as e:  # noqa: BLE001 - the swing signal must never break the cycle job
+        if verbose:
+            print(f"  swing step failed (not alerted): {e}")
+        return {"status": f"error: {e}"}
 
 
 def recent_live(limit: int = 60) -> pd.DataFrame:
